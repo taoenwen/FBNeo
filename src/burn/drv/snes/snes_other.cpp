@@ -9,6 +9,8 @@
 #include "cart.h"
 #include "ppu.h"
 #include "dsp.h"
+#include "apu.h"
+#include "msu1.h"
 #include "statehandler.h"
 
 static const int stateVersion = 1;
@@ -255,6 +257,24 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		bprintf(0, _T("spc7110: prom %x drom %x erom %x ram %x rtc %d\n"), spc7110_promSize, spc7110_trueSize - spc7110_promSize - spc7110_eromSize, spc7110_eromSize, spc7110_ramSize, spc7110_hasRTC);
 	}
 
+	// MSU-1 detection.  Unlike the on-cart coprocessors above, MSU-1 is not
+	// encoded in the SNES ROM header at all - real MSU-1 titles are ordinary
+	// LoROM/HiROM images accompanied by an external manifest plus a data ROM and
+	// PCM tracks.  Which base mapping to overlay is therefore a mount-layer
+	// decision, recorded here as msuBase for the CART_MSU1 read/write path.  Until
+	// a media backend and a detection trigger are wired up (the chip currently
+	// runs against a stub backend), this promotion stays gated off so ordinary
+	// carts are never mis-mapped; the base/overlay plumbing below is exercised the
+	// moment msu1Enable is set by the mount layer.
+	UINT8 msu1_base = 0;
+	bool  msu1Enable = false;   // TODO: set from mount-layer detection once backend exists
+	if (msu1Enable) {
+		msu1_base = (headers[used].cartType == CART_HIROM
+			|| headers[used].cartType == CART_EXHIROM) ? CART_HIROM : CART_LOROM;
+		headers[used].cartType = CART_MSU1;
+		bprintf(0, _T("msu1: overlay on %S base\n"), cart_gettype(msu1_base));
+	}
+
 	switch (bioslength) {
 		case 0x2800:	// DSP1-4
 			bprintf(0, _T("-we have dsp bios, lets go!\n"));
@@ -270,6 +290,10 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		case 0x11000:	// st010/st011
 			bprintf(0, _T("-we have st010/st011 bios, lets go!\n"));
 			headers[used].cartType = CART_LOROMSETA;;
+			break;
+		case 0x28000:	// st018 (Seta ARMv3): 128KB program ROM + 32KB data ROM
+			bprintf(0, _T("-we have st018 bios, lets go!\n"));
+			headers[used].cartType = CART_ST018;
 			break;
 	}
 
@@ -320,6 +344,10 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		snes->cart->eromSize    = spc7110_eromSize;
 		snes->cart->romTrueSize = spc7110_trueSize;	// pre-padding size drives the drom/erom split
 		snes->cart->hasRTC      = spc7110_hasRTC;
+	}
+
+	if (headers[used].cartType == CART_MSU1) {
+		snes->cart->msuBase = msu1_base;			// LoROM/HiROM base the $2000-$2007 overlay sits on
 	}
 
 	snes->palTiming = headers[used].pal;			// set region before reset, so co-processors see correct timing
@@ -394,6 +422,14 @@ void snes_setSamples(Snes* snes, int16_t* sampleData, int samplesPerFrame) {
 	// size is 2 (int16) * 2 (stereo) * samplesPerFrame
 	// sets samples in the sampleData
 	dsp_getSamples(snes->apu->dsp, sampleData, samplesPerFrame);
+
+	// MSU-1 PCM is generated natively at 44100Hz and mixed on top of the S-DSP
+	// output.  outRate = samplesPerFrame * framerate; the DSP mute line silences
+	// MSU output too (matches ares).  Only active on an MSU-1 cart.
+	if (snes->cart != NULL && snes->cart->type == CART_MSU1) {
+		int outRate = samplesPerFrame * (snes->palTiming ? 50 : 60);
+		snes_msu1_mixSamples(sampleData, samplesPerFrame, outRate, snes->apu->dsp->mute ? 1 : 0);
+	}
 }
 
 int snes_saveBattery(Snes* snes, uint8_t* data) {

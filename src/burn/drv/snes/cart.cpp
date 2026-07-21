@@ -16,6 +16,8 @@
 #include "sdd1.h"
 #include "gsu.h"
 #include "spc7110.h"
+#include "msu1.h"
+#include "st018.h"
 
 static uint8_t cart_readDummy(Cart* cart, uint8_t bank, uint16_t adr);
 static void cart_writeDummy(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val);
@@ -43,6 +45,10 @@ static uint8_t cart_readSuperFX(Cart* cart, uint8_t bank, uint16_t adr);
 static void cart_writeSuperFX(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val);
 static uint8_t cart_readSPC7110(Cart* cart, uint8_t bank, uint16_t adr);
 static void cart_writeSPC7110(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val);
+static uint8_t cart_readMSU1(Cart* cart, uint8_t bank, uint16_t adr);
+static void cart_writeMSU1(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val);
+static uint8_t cart_readST018(Cart* cart, uint8_t bank, uint16_t adr);
+static void cart_writeST018(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val);
 
 uint8_t (*cart_read)(Cart* cart, uint8_t bank, uint16_t adr) = NULL;
 void (*cart_write)(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val) = NULL;
@@ -51,7 +57,7 @@ void cart_run_dummy() { }
 void cart_mapRun(Cart* cart);
 
 const char *cart_gettype(int ctype) {
-  const char* cartTypeNames[CART_MAXENTRY] = {"(none)", "LoROM", "HiROM", "ExLoROM", "ExHiROM", "CX4", "LoROM-DSP", "HiROM-DSP", "LoROM-SeTa", "LoROM-SA1", "LoROM-OBC1", "LoROM-SDD1", "SuperFX", "SPC7110"};
+  const char* cartTypeNames[CART_MAXENTRY] = {"(none)", "LoROM", "HiROM", "ExLoROM", "ExHiROM", "CX4", "LoROM-DSP", "HiROM-DSP", "LoROM-SeTa", "LoROM-SA1", "LoROM-OBC1", "LoROM-SDD1", "SuperFX", "SPC7110", "MSU1", "ST018"};
   return cartTypeNames[(ctype < CART_MAXENTRY) ? ctype : 0];
 }
 
@@ -72,6 +78,8 @@ static void cart_mapRwHandlers(Cart* cart) {
     case CART_LOROMSDD1: cart_read = cart_readLoromSDD1; cart_write = cart_writeLoromSDD1; break;
 	case CART_SUPERFX: cart_read = cart_readSuperFX; cart_write = cart_writeSuperFX; break;
 	case CART_SPC7110: cart_read = cart_readSPC7110; cart_write = cart_writeSPC7110; break;
+	case CART_MSU1: cart_read = cart_readMSU1; cart_write = cart_writeMSU1; break;
+	case CART_ST018: cart_read = cart_readST018; cart_write = cart_writeST018; break;
 	default:
 	  bprintf(0, _T("cart_mapRwHandlers(): invalid type specified: %x\n"), cart->type); break;
   }
@@ -89,10 +97,13 @@ Cart* cart_init(Snes* snes) {
   cart->romTrueSize = 0;
   cart->ram = NULL;
   cart->ramSize = 0;
+  cart->bios = NULL;
+  cart->biosSize = 0;
   cart->oscillator = 0;
   cart->promSize = 0;
   cart->eromSize = 0;
   cart->hasRTC = false;
+  cart->msuBase = 0;
   return cart;
 }
 
@@ -119,6 +130,8 @@ void cart_free(Cart* cart) {
     case CART_LOROMSDD1: snes_sdd1_exit(); break;
 	case CART_SUPERFX: snes_gsu_exit(); break;
 	case CART_SPC7110: snes_spc7110_exit(); break;
+	case CART_MSU1: snes_msu1_exit(); break;
+	case CART_ST018: snes_st018_exit(); break;
   }
 
   if(cart->rom != NULL) BurnFree(cart->rom);
@@ -136,6 +149,8 @@ void cart_mapRun(Cart* cart) {
 	case CART_LOROMSA1: cart_run = snes_sa1_run; cart->heavySync = true; break;
 
 	case CART_SUPERFX: cart_run = snes_gsu_run; cart->heavySync = true; break;
+
+	case CART_ST018: cart_run = snes_st018_run; cart->heavySync = true; break;
 
 	case CART_LOROMDSP:
 	case CART_HIROMDSP:
@@ -173,6 +188,20 @@ void cart_reset(Cart* cart) {
 	  snes_spc7110_init(cart->rom, cart->romTrueSize, cart->ram, cart->ramSize, cart->promSize, cart->eromSize, cart->hasRTC);
 	  snes_spc7110_reset();
 	  bprintf(0, _T("init/reset spc7110 (prom %x drom %x erom %x ram %x rtc %d)\n"), cart->promSize, cart->romTrueSize - cart->promSize - cart->eromSize, cart->eromSize, cart->ramSize, cart->hasRTC);
+	  break;
+	case CART_MSU1:
+	  // MSU-1 is an add-on overlaying a LoROM/HiROM base (msuBase); the chip owns
+	  // only the $2000-$2007 I/O ports, base mapping handles everything else.
+	  snes_msu1_init();
+	  snes_msu1_reset();
+	  bprintf(0, _T("init/reset msu1 (base %S)\n"), cart_gettype(cart->msuBase));
+	  break;
+	case CART_ST018:
+	  // Seta ST018: ARMv3 coprocessor.  Firmware (128KB PROM + 32KB DROM) arrives
+	  // as the board ROM in cart->bios; the ARM core is FBNeo's own arm7.
+	  snes_st018_init(cart->snes, cart->bios, cart->biosSize);
+	  snes_st018_reset();
+	  bprintf(0, _T("init/reset st018 (bios %x)\n"), cart->biosSize);
 	  break;
     case CART_CX4: // capcom cx4
       cx4_init(cart->snes);
@@ -242,6 +271,8 @@ void cart_handleState(Cart* cart, StateHandler* sh) {
 	  case CART_LOROMSDD1: snes_sdd1_handleState(sh); break;
 	  case CART_SUPERFX: snes_gsu_handleState(sh); break;
 	  case CART_SPC7110: snes_spc7110_handleState(sh); break;
+	  case CART_MSU1: snes_msu1_handleState(sh); break;
+	  case CART_ST018: snes_st018_handleState(sh); break;
   }
 }
 
@@ -290,6 +321,13 @@ void cart_load(Cart* cart, int type, uint8_t* rom, int romSize, uint8_t* biosrom
 	  cart->biosSize = biosromSize;
 	  dsp_bios_reform(biosrom, cart->bios, (type == CART_LOROMSETA));
 	  upd_ram = (uint8_t*)BurnMalloc(0x2000); // 0x200 dsp, 0x800 seta
+  }
+  // Seta ST018: 160KB ARM firmware (128KB PROM + 32KB DROM), copied verbatim -
+  // no dsp_bios_reform (that is uPD7725/96050-specific).
+  if (biosromSize > 0 && type == CART_ST018) {
+	  cart->bios = BurnMalloc(biosromSize);
+	  cart->biosSize = biosromSize;
+	  memcpy(cart->bios, biosrom, biosromSize);
   }
   cart->ramSize = ramSize;
   memcpy(cart->rom, rom, romSize);
@@ -665,4 +703,54 @@ static uint8_t cart_readSPC7110(Cart* cart, uint8_t bank, uint16_t adr) {
 
 static void cart_writeSPC7110(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val) {
 	snes_spc7110_cart_write(bank << 16 | adr, val);
+}
+
+// MSU-1: an add-on chip layered on top of a normal LoROM/HiROM board.  The chip
+// itself only decodes the eight I/O ports $2000-$2007 (in the system-area banks
+// $00-$3f / $80-$bf); every other access falls through to the base mapping
+// recorded in cart->msuBase.  This matches ares/bsnes, where MSU-1 registers a
+// small MMIO window over an otherwise ordinary cartridge.
+static bool cart_msuPort(uint8_t bank, uint16_t adr) {
+	uint8_t b = bank & 0x7f;                       // fold $80-$ff onto $00-$7f
+	return (b < 0x40) && (adr >= 0x2000 && adr <= 0x2007);
+}
+
+static uint8_t cart_readMSU1(Cart* cart, uint8_t bank, uint16_t adr) {
+	if(cart_msuPort(bank, adr)) {
+		return snes_msu1_read(bank << 16 | adr, cart->snes->openBus);
+	}
+	if(cart->msuBase == CART_HIROM) return cart_readHirom(cart, bank, adr);
+	return cart_readLorom(cart, bank, adr);
+}
+
+static void cart_writeMSU1(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val) {
+	if(cart_msuPort(bank, adr)) {
+		snes_msu1_write(bank << 16 | adr, val);
+		return;
+	}
+	if(cart->msuBase == CART_HIROM) cart_writeHirom(cart, bank, adr, val);
+	else cart_writeLorom(cart, bank, adr, val);
+}
+
+// ST018 (Seta ARMv3): a LoROM board with an ARM coprocessor whose host bridge
+// occupies $3800-$3807 (mirrored across $3800-$38ff; a0 ignored) in the system
+// banks $00-$3f / $80-$bf.  Everything else is ordinary LoROM.
+static bool cart_st018Port(uint8_t bank, uint16_t adr) {
+	uint8_t b = bank & 0x7f;                       // fold $80-$ff onto $00-$7f
+	return (b < 0x40) && (adr >= 0x3800 && adr < 0x3900);
+}
+
+static uint8_t cart_readST018(Cart* cart, uint8_t bank, uint16_t adr) {
+	if(cart_st018Port(bank, adr)) {
+		return snes_st018_read(bank << 16 | adr, cart->snes->openBus);
+	}
+	return cart_readLorom(cart, bank, adr);
+}
+
+static void cart_writeST018(Cart* cart, uint8_t bank, uint16_t adr, uint8_t val) {
+	if(cart_st018Port(bank, adr)) {
+		snes_st018_write(bank << 16 | adr, val);
+		return;
+	}
+	cart_writeLorom(cart, bank, adr, val);
 }
