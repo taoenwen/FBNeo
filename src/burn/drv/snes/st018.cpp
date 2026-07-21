@@ -354,12 +354,12 @@ void snes_st018_handleState(StateHandler* sh)
 
 	// ARM core register context: FBNeo's Arm7Scan stores it through the BurnArea
 	// callback framework, which the SNES StateHandler (a flat byte stream) cannot
-	// drive.  Serialize the raw register block byte-for-byte via Arm7GetContext.
+	// drive.  Serialize the raw register block byte-for-byte via arm7_get_context.
 	if (s_haveArm) {
 		void* ctx = NULL;
 		INT32 ctxSize = 0;
 		Arm7Open(0);
-		Arm7GetContext(&ctx, &ctxSize);
+		arm7_get_context(&ctx, &ctxSize);
 		if (ctx != NULL && ctxSize > 0) {
 			sh_handleByteArray(sh, (UINT8*)ctx, ctxSize);
 		}
