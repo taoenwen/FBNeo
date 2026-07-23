@@ -1,23 +1,6 @@
 // =============================================================================
 //  MSU-1 media coprocessor for FBNeo
 // =============================================================================
-// Ported from ares (ares/sfc/coprocessor/msu1), cross-checked with bsnes-mercury
-// (sfc/chip/msu1).  Both upstreams are ISC-licensed; see license.txt.
-// FBNeo flat-C port / integration: (this file)
-//
-// Model note
-// ----------
-// ares and mercury run the MSU-1 as a clock-stepped Thread that produces one
-// stereo PCM frame every 1/44100s and pushes it into the audio mixer, staying
-// synchronised to the S-CPU through the scheduler.  FBNeo's SNES core has no
-// such per-chip thread and renders audio a whole video-frame at a time, so this
-// port keeps the *register* behaviour immediate (reads/writes of $2000-$2007
-// take effect at once, exactly as the CPU observes them) and advances the PCM
-// stream in a single pass per video frame, inside snes_msu1_mixSamples().  For
-// software this is indistinguishable: the audio register set (play/repeat/
-// volume/track) is edge/level state that the game polls, and the number of PCM
-// samples consumed per video frame is identical to the threaded model.
-// =============================================================================
 
 #include "msu1.h"
 #include <string.h>
@@ -29,16 +12,14 @@
 static MsuDataOpen   s_dataOpenCb  = NULL;
 static MsuAudioOpen  s_audioOpenCb = NULL;
 
-static MsuFile s_dataFile;   // random-access data ROM  (msu1.rom)
-static MsuFile s_audioFile;  // current PCM track       (track-N.pcm)
+static MsuFile s_dataFile;
+static MsuFile s_audioFile;
 
-// A closed MsuFile: every call is a safe no-op.  Used whenever a backend hook
-// is absent or an open fails, so the rest of the chip needs no NULL checks.
-static UINT8  closed_read(void* /*ctx*/)               { return 0x00; }
-static void   closed_seek(void* /*ctx*/, UINT32 /*o*/) {              }
-static INT32  closed_end (void* /*ctx*/)               { return 1;    }
-static UINT32 closed_size(void* /*ctx*/)               { return 0;    }
-static INT32  closed_isOpen(void* /*ctx*/)             { return 0;    }
+static UINT8  closed_read( void* /*ctx*/)				{ return 0x00; }
+static void   closed_seek( void* /*ctx*/, UINT32 /*o*/)	{              }
+static INT32  closed_end ( void* /*ctx*/)				{ return 1;    }
+static UINT32 closed_size( void* /*ctx*/)				{ return 0;    }
+static INT32  closed_isOpen(void* /*ctx*/)				{ return 0;    }
 
 static void msu1_closeFile(MsuFile* f)
 {
@@ -56,7 +37,7 @@ static void msu1_closeFile(MsuFile* f)
 
 // $2000 status flags (bit positions match the hardware read of $2000).
 enum {
-	FLAG_REVISION       = 0x02,		// MSU-1 revision (max 0x07); ares reports 0x02
+	FLAG_REVISION       = 0x02,
 	FLAG_AUDIO_ERROR    = 0x08,
 	FLAG_AUDIO_PLAYING  = 0x10,
 	FLAG_AUDIO_REPEATING= 0x20,
@@ -82,11 +63,16 @@ static UINT8  io_audioRepeat;		// loop at end instead of stopping
 static UINT8  io_audioBusy;			// audio subsystem busy (unused: always 0 here)
 static UINT8  io_dataBusy;			// data subsystem busy (unused: always 0 here)
 
-// Output resampler continuity (44100Hz native -> outRate).  Not part of the
-// observable chip state, but kept module-scope so a machine reset clears it.
 static UINT32 s_mixPhase;			// 16.16 fractional native-sample position
-static INT16  s_mixCurL;			// last native MSU frame, held between crossings
+static INT16  s_mixCurL;			// current native MSU frame (phase integer part)
 static INT16  s_mixCurR;
+static INT16  s_mixNextL;			// following native frame, for interpolation
+static INT16  s_mixNextR;
+static INT32  s_mixPrimed;			// 0 until the first Cur/Next pair is loaded
+#if MSU1_DEBUG
+static INT32  s_msuAudiblePrev;		// last reported "MSU track audible" state (-1 = unknown)
+static INT32  s_msuLevelFrames;		// frame counter for periodic mixed-level debug report
+#endif
 
 //======================
 // media open helpers
@@ -106,18 +92,18 @@ static void msu1_audioOpen()
 {
 	msu1_closeFile(&s_audioFile);
 
+	s_mixPrimed = 0;
+
 	if (s_audioOpenCb && s_audioOpenCb(io_audioTrack, &s_audioFile) && s_audioFile.isOpen(s_audioFile.ctx)) {
 		if (s_audioFile.size(s_audioFile.ctx) >= 8) {
-			// Header: 4-byte magic "MSU1" (big-endian) then a 32-bit little-endian
-			// sample loop point.  Loop offset is 8 + loopSample*4 bytes (4 bytes per
-			// stereo sample).  Matches ares audioOpen().
 			s_audioFile.seek(s_audioFile.ctx, 0);
+
 			UINT32 header = 0;
 			header  = (UINT32)s_audioFile.read(s_audioFile.ctx) << 24;
 			header |= (UINT32)s_audioFile.read(s_audioFile.ctx) << 16;
 			header |= (UINT32)s_audioFile.read(s_audioFile.ctx) << 8;
 			header |= (UINT32)s_audioFile.read(s_audioFile.ctx);
-			if (header == 0x4d535531) {  // "MSU1"
+			if (header == 0x4d535531) {		// "MSU1"
 				UINT32 loopSample = 0;
 				loopSample  = (UINT32)s_audioFile.read(s_audioFile.ctx);
 				loopSample |= (UINT32)s_audioFile.read(s_audioFile.ctx) << 8;
@@ -166,7 +152,7 @@ UINT8 snes_msu1_read(UINT32 address, UINT8 openbus)
 		case 0x2007: return '1';
 	}
 
-	return openbus;  // unreachable
+	return openbus;		// unreachable
 }
 
 void snes_msu1_write(UINT32 address, UINT8 data)
@@ -191,14 +177,12 @@ void snes_msu1_write(UINT32 address, UINT8 data)
 			break;
 		case 0x2005:
 			io_audioTrack = (io_audioTrack & 0x00ff) | ((UINT16)data << 8);
-			// Selecting a track stops playback and rewinds to the first sample, unless
-			// a resume for this exact track is pending (see $2007 resume bit).
 			io_audioPlay   = 0;
 			io_audioRepeat = 0;
 			io_audioPlayOffset = 8;
 			if (io_audioTrack == io_audioResumeTrack) {
 				io_audioPlayOffset  = io_audioResumeOffset;
-				io_audioResumeTrack = ~0u;  // consume the pending resume
+				io_audioResumeTrack = ~0u;		// consume the pending resume
 				io_audioResumeOffset = 0;
 			}
 			msu1_audioOpen();
@@ -211,8 +195,6 @@ void snes_msu1_write(UINT32 address, UINT8 data)
 			if (io_audioError) break;
 			io_audioPlay   = (data & 0x01) ? 1 : 0;
 			io_audioRepeat = (data & 0x02) ? 1 : 0;
-			// Resume bit (bit 2): when set alongside a stop (play=0), remember the
-			// current track+offset so the next re-select of this track continues.
 			if (!io_audioPlay && (data & 0x04)) {
 				io_audioResumeTrack  = io_audioTrack;
 				io_audioResumeOffset = io_audioPlayOffset;
@@ -232,8 +214,6 @@ static INT16 clamp16(INT32 v)
 	return (INT16)v;
 }
 
-// Produce the next native-rate (44100Hz) MSU-1 stereo frame, advancing the PCM
-// stream and handling end-of-track stop/loop.  Mirrors ares MSU1::main().
 static void msu1_nextFrame(INT16* outL, INT16* outR, INT32 dspMuted)
 {
 	INT32 left = 0, right = 0;
@@ -276,30 +256,71 @@ void snes_msu1_mixSamples(INT16* out, INT32 samples, INT32 outRate, INT32 dspMut
 	if (out == NULL || samples <= 0) return;
 	if (outRate <= 0) outRate = 44100;
 
-	// Walk the 44100Hz MSU stream in lock-step with the output buffer using a
-	// fixed-point phase accumulator.  We pull a fresh native MSU frame every time
-	// the accumulator crosses one 44100Hz sample boundary and hold it (nearest /
-	// zero-order) between crossings; for outRate <= 44100 this consumes one or
-	// more native frames per output sample, matching real per-frame consumption.
-	//
-	// Phase step = 44100 / outRate native samples per output sample, in 16.16.
 	const UINT32 step = (UINT32)(((UINT64)44100 << 16) / (UINT32)outRate);
 
-	// Prime the first sample so a freshly reset stream starts coherently.
-	// s_mixPhase's integer part counts how many native frames to advance.
+	if (!s_mixPrimed) {
+		msu1_nextFrame(&s_mixCurL,  &s_mixCurR,  dspMuted);
+		msu1_nextFrame(&s_mixNextL, &s_mixNextR, dspMuted);
+		s_mixPhase  = 0;
+		s_mixPrimed = 1;
+#if MSU1_DEBUG
+		bprintf(0, _T("[MSU1] mix: 44100 -> %dHz, %s (step=0x%05x)\n"),
+			outRate, (outRate == 44100) ? _T("1:1") : _T("linear"), step);
+#endif
+	}
+
+#if MSU1_DEBUG
+	// Edge-triggered: is MSU-1 external audio actually playing (vs built-in only)?
+	INT32 msuAudible = (io_audioPlay && !io_audioError) ? 1 : 0;
+	if (msuAudible != s_msuAudiblePrev) {
+		if (msuAudible)
+			bprintf(PRINT_IMPORTANT, _T("[MSU1] >>> track %d PLAYING (over SNES audio)\n"), (INT32)io_audioTrack);
+		else
+			bprintf(PRINT_IMPORTANT, _T("[MSU1] <<< track stopped -- SNES built-in audio only\n"));
+		s_msuAudiblePrev = msuAudible;
+	}
+	INT32 msuPeak = 0;		// peak MSU level mixed in this call
+#endif
+
 	for (INT32 i = 0; i < samples; i++) {
-		// advance native stream by the whole-sample part accrued for this output slot
 		UINT32 advance = s_mixPhase >> 16;
 		s_mixPhase &= 0xffff;
 		for (UINT32 a = 0; a < advance; a++) {
-			msu1_nextFrame(&s_mixCurL, &s_mixCurR, dspMuted);
+			s_mixCurL = s_mixNextL;
+			s_mixCurR = s_mixNextR;
+			msu1_nextFrame(&s_mixNextL, &s_mixNextR, dspMuted);
 		}
-		INT32 l = (INT32)out[i * 2 + 0] + s_mixCurL;
-		INT32 r = (INT32)out[i * 2 + 1] + s_mixCurR;
+		INT32 frac = (INT32)s_mixPhase;
+		INT32 msuL = (INT32)s_mixCurL + (INT32)((((INT64)s_mixNextL - (INT64)s_mixCurL) * frac) >> 16);
+		INT32 msuR = (INT32)s_mixCurR + (INT32)((((INT64)s_mixNextR - (INT64)s_mixCurR) * frac) >> 16);
+
+#if MSU1_DEBUG
+		INT32 aL = msuL < 0 ? -msuL : msuL;
+		INT32 aR = msuR < 0 ? -msuR : msuR;
+		if (aL > msuPeak) msuPeak = aL;
+		if (aR > msuPeak) msuPeak = aR;
+#endif
+
+		INT32 l = (INT32)out[i * 2 + 0] + msuL;
+		INT32 r = (INT32)out[i * 2 + 1] + msuR;
 		out[i * 2 + 0] = clamp16(l);
 		out[i * 2 + 1] = clamp16(r);
 		s_mixPhase += step;
 	}
+
+#if MSU1_DEBUG
+	// ~once per second while a track plays: peak>0 proves audio reached the buffer;
+	// peak==0 with play==1 means opened-but-silent (check volume / track data).
+	if (io_audioPlay && !io_audioError) {
+		if (++s_msuLevelFrames >= 60) {
+			bprintf(PRINT_IMPORTANT, _T("[MSU1] track %d: peak=%d/32767, volume=%d/255\n"),
+				(INT32)io_audioTrack, msuPeak, (INT32)io_audioVolume);
+			s_msuLevelFrames = 0;
+		}
+	} else {
+		s_msuLevelFrames = 0;
+	}
+#endif
 }
 
 //======================
@@ -314,9 +335,6 @@ void snes_msu1_setBackend(MsuDataOpen dataOpen, MsuAudioOpen audioOpen)
 
 void snes_msu1_init()
 {
-	// Match the SPC7110/GSU pattern: init prepares state, cart_reset() calls
-	// snes_msu1_reset() right after.  Start from a closed backend so a reset
-	// before any media is attached is well-defined.
 	msu1_closeFile(&s_dataFile);
 	msu1_closeFile(&s_audioFile);
 }
@@ -332,7 +350,7 @@ void snes_msu1_reset()
 	io_audioTrack  = 0;
 	io_audioVolume = 0;
 
-	io_audioResumeTrack  = ~0u;	// no resume pending
+	io_audioResumeTrack  = ~0u;		// no resume pending
 	io_audioResumeOffset = 0;
 
 	io_audioError  = 0;
@@ -344,6 +362,13 @@ void snes_msu1_reset()
 	s_mixPhase = 0;
 	s_mixCurL  = 0;
 	s_mixCurR  = 0;
+	s_mixNextL = 0;
+	s_mixNextR = 0;
+	s_mixPrimed = 0;
+#if MSU1_DEBUG
+	s_msuAudiblePrev = -1;			// force a report on the first mix after reset
+	s_msuLevelFrames = 0;
+#endif
 
 	msu1_dataOpen();
 	msu1_audioOpen();
@@ -357,9 +382,6 @@ void snes_msu1_exit()
 
 void snes_msu1_handleState(StateHandler* sh)
 {
-	// Register/latch state only.  The external media (data ROM + PCM track) is not
-	// serialized - it is content-addressed by track number and re-opened here, so
-	// on load we restore the cursors and re-seek the live files.
 	sh_handleInts(sh,
 		&io_dataSeekOffset, &io_dataReadOffset,
 		&io_audioPlayOffset, &io_audioLoopOffset,
@@ -369,7 +391,6 @@ void snes_msu1_handleState(StateHandler* sh)
 		&io_audioVolume,
 		&io_audioError, &io_audioPlay, &io_audioRepeat, &io_audioBusy, &io_dataBusy, NULL);
 
-	// Re-sync the live media streams to the restored cursors after a load.
 	if (!sh->saving) {
 		msu1_dataOpen();
 		msu1_audioOpen();

@@ -11,6 +11,7 @@
 #include "dsp.h"
 #include "apu.h"
 #include "msu1.h"
+#include "msu1_backend.h"
 #include "statehandler.h"
 
 static const int stateVersion = 1;
@@ -155,16 +156,6 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		headers[used].cartType = CART_LOROMSDD1;
 	}
 
-	// SPC7110 (Hudson) detection.  Custom-chip carts set the coprocessor nibble
-	// ($ffd6.7-4) to $F; the chipset subtype byte ($ffbf, read into exCoprocessor)
-	// then disambiguates: $10=CX4 (handled above), $01/$02=ST010/011 (BIOS-length),
-	// $00=SPC7110.  All four SPC7110 carts (Tengai Makyou Zero + Shonen Jump limited
-	// edition, Super Power League 4, Momotarou Dentetsu Happy) and every Tengai fan
-	// translation carry this extended header, so no name-based fallback is needed
-	// (bsnes-mercury and ares likewise detect purely on the $ffd6 rom-type byte).
-	// exCoprocessor is only meaningfully populated for v2/v3 (extended) headers, and
-	// every real SPC7110 cart has one; requiring headerVersion>=2 avoids a false match
-	// on a plain v1 ROM whose zero-filled exCoprocessor happens to read 0x00.
 	bool isSPC7110 = false;
 	if (headers[used].headerVersion >= 2
 		&& headers[used].coprocessor == 0x0f && headers[used].exCoprocessor == 0x00
@@ -175,14 +166,6 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		headers[used].cartType = CART_SPC7110;
 	}
 
-	// SuperFX work/save-RAM: the GSU plots into this RAM (bus $70-71:0000-ffff),
-	// so it must always exist.  RAM size is not reliably encoded in the ROM header
-	// (most GSU games lack a V3 header, so exRamSize reads 0).  ares and
-	// bsnes-mercury resolve this with a per-game board database; replicate the
-	// needed subset with a name-based lookup, then fall back to the V3 header and
-	// finally a ROM-size heuristic.  GSU-2 (128KB): Yoshi's Island, Star Fox 2,
-	// Doom, Winter Gold.  GSU-1 (64KB): Star Fox/Star Wing, Stunt Race FX, Vortex,
-	// Dirt Trax FX, Dirt Racer, Power Slide (proto).
 	UINT32 superfx_ramSize = 0;
 	if (headers[used].cartType == CART_SUPERFX) {
 		const char* sfxname = headers[used].name;
@@ -213,15 +196,6 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		bprintf(0, _T("superfx: gsu ram size %x\n"), superfx_ramSize);
 	}
 
-	// SPC7110 board config: the cart image is [ program ROM | data ROM | expansion ROM ].
-	// For the three commercial SPC7110 titles the program ROM is 1MB and the data ROM is
-	// the remainder (Tengai Makyou Zero: 1MB PROM + 4MB DROM), with no expansion ROM.
-	// The Tengai Makyou Zero fan translations use the EXSPC7110 board: a 7MB image of
-	// 1MB PROM + 5MB DROM + 1MB expansion ROM, where the expansion ROM is mapped straight
-	// onto the bus at $40-4f (bypassing the chip).  Save-RAM is 8KB and battery-backed;
-	// the Epson RTC-4513 is present on Tengai Makyou Zero only (SPC7110-RAM-EPSONRTC /
-	// EXSPC7110-RAM-EPSONRTC board); Super Power League 4 / Momotarou Dentetsu Happy use
-	// the plain SPC7110-RAM board (no RTC).
 	UINT32 spc7110_promSize = 0;
 	UINT32 spc7110_eromSize = 0;
 	UINT32 spc7110_trueSize = 0;
@@ -229,16 +203,6 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 	bool   spc7110_hasRTC   = false;
 	if (headers[used].cartType == CART_SPC7110) {
 		spc7110_promSize = (newLength > 0x100000) ? 0x100000 : 0;	// 1MB PROM
-		// EXSPC7110 fan-translation board: a fixed 1MB program + 5MB data + 1MB
-		// expansion layout (7MB).  The DATA/EXPANSION split is board knowledge, not
-		// encoded in the ROM.  ares keys off `romSize() == 0x700000`; we use >= so a
-		// deliberately over-sized / blank-tail image still resolves to the EX board.
-		// origLength is the pre-padding size, so the power-of-2 mirror padding above
-		// (7MB -> 8MB) does not fool the test.  The split itself uses the FIXED board
-		// offsets 0x100000 / 0x600000 and a fixed 0x700000 logical size, never derived
-		// from the tail, so no byte past 0x700000 is ever addressed -- immune to both
-		// the mirror padding and a hand-extended blank tail.  All commercial SPC7110
-		// carts are <= 5MB (Tengai 5MB, Momotarou 3MB, Super Power League 4 2MB).
 		if ((UINT32)origLength >= 0x700000) {
 			spc7110_eromSize = 0x100000;							// fixed 1MB expansion @ 0x600000
 			spc7110_trueSize = 0x700000;							// fixed logical board size (ignore any tail)
@@ -248,31 +212,27 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length, uint8_t* biosdata
 		spc7110_ramSize = (headers[used].chips > 0 && headers[used].ramSize >= 0x2000)
 			? headers[used].ramSize : 0x2000;						// >= 8KB save SRAM
 		headers[used].hasBattery = true;
-		// Epson RTC-4513 presence comes straight from the $ffd6 chipset nibble: $9 =
-		// coprocessor+RAM+battery+RTC (Tengai Makyou Zero, incl. Shonen Jump limited
-		// edition and all fan translations), $5 = coprocessor+RAM+battery, no RTC
-		// (Super Power League 4, Momotarou Dentetsu Happy).  This mirrors bsnes-mercury's
-		// has_epsonrtc = (rom_type == 0xf9) and needs no per-title name list.
 		spc7110_hasRTC = (headers[used].chips == 0x9);
 		bprintf(0, _T("spc7110: prom %x drom %x erom %x ram %x rtc %d\n"), spc7110_promSize, spc7110_trueSize - spc7110_promSize - spc7110_eromSize, spc7110_eromSize, spc7110_ramSize, spc7110_hasRTC);
 	}
 
-	// MSU-1 detection.  Unlike the on-cart coprocessors above, MSU-1 is not
-	// encoded in the SNES ROM header at all - real MSU-1 titles are ordinary
-	// LoROM/HiROM images accompanied by an external manifest plus a data ROM and
-	// PCM tracks.  Which base mapping to overlay is therefore a mount-layer
-	// decision, recorded here as msuBase for the CART_MSU1 read/write path.  Until
-	// a media backend and a detection trigger are wired up (the chip currently
-	// runs against a stub backend), this promotion stays gated off so ordinary
-	// carts are never mis-mapped; the base/overlay plumbing below is exercised the
-	// moment msu1Enable is set by the mount layer.
 	UINT8 msu1_base = 0;
-	bool  msu1Enable = false;   // TODO: set from mount-layer detection once backend exists
+	bool  msu1Enable = false;
+	// Enable if this romset has MSU-1 media, or (for a clone) its parent does.
+	const char* msu1Game = BurnDrvGetTextA(DRV_NAME);
+	if (msu1Game != NULL && snes_msu1_backend_detect(msu1Game)) {
+		msu1Enable = true;
+	} else {
+		const char* p = BurnDrvGetTextA(DRV_PARENT);
+		if (p != NULL && p[0] && snes_msu1_backend_detect(p)) msu1Enable = true;
+	}
 	if (msu1Enable) {
 		msu1_base = (headers[used].cartType == CART_HIROM
 			|| headers[used].cartType == CART_EXHIROM) ? CART_HIROM : CART_LOROM;
 		headers[used].cartType = CART_MSU1;
-		bprintf(0, _T("msu1: overlay on %S base\n"), cart_gettype(msu1_base));
+		snes_msu1_backend_setGame(msu1Game, BurnDrvGetTextA(DRV_PARENT));
+		snes_msu1_backend_install();
+		bprintf(0, _T("msu1: overlay on %S base (media: support/snesmsu1/%S/)\n"), cart_gettype(msu1_base), msu1Game);
 	}
 
 	switch (bioslength) {
@@ -422,11 +382,7 @@ void snes_setSamples(Snes* snes, int16_t* sampleData, int samplesPerFrame) {
 	// size is 2 (int16) * 2 (stereo) * samplesPerFrame
 	// sets samples in the sampleData
 	dsp_getSamples(snes->apu->dsp, sampleData, samplesPerFrame);
-
-	// MSU-1 PCM is generated natively at 44100Hz and mixed on top of the S-DSP
-	// output.  outRate = samplesPerFrame * framerate; the DSP mute line silences
-	// MSU output too (matches ares).  Only active on an MSU-1 cart.
-	if (snes->cart != NULL && snes->cart->type == CART_MSU1) {
+	if (snes->cart != NULL && snes->cart->type == CART_MSU1 && bBurnRunAheadFrame == 0) {
 		int outRate = samplesPerFrame * (snes->palTiming ? 50 : 60);
 		snes_msu1_mixSamples(sampleData, samplesPerFrame, outRate, snes->apu->dsp->mute ? 1 : 0);
 	}

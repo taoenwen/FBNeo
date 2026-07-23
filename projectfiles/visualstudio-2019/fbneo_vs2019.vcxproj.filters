@@ -3640,6 +3640,12 @@
     <ClCompile Include="..\..\src\burn\drv\snes\msu1.cpp">
       <Filter>burn\drv\snes</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\burn\drv\snes\msu1_backend.cpp">
+      <Filter>burn\drv\snes</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\burn\drv\snes\msu1_decoders.c">
+      <Filter>burn\drv\snes</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\burn\drv\snes\ppu.cpp">
       <Filter>burn\drv\snes</Filter>
     </ClCompile>

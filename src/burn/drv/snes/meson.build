@@ -17,6 +17,8 @@ group_srcs = [
     'gsu.cpp',
     'input.cpp',
     'msu1.cpp',
+    'msu1_backend.cpp',
+    'msu1_decoders.c',
     'ppu.cpp',
     'sa1.cpp',
     'sdd1.cpp',
