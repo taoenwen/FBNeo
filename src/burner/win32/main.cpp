@@ -793,6 +793,10 @@ static int AppInit()
 	ConfigAppLoad();
 	LookupSubDirThreads();
 
+	// Inject every user RomData (.dat) under support/romdata/ into the driver list
+	// as first-class entries (new platform-independent core, romdata_core.cpp).
+	RomDataScan(szAppRomdataPath, false);
+
 #if defined (FBNEO_DEBUG)
 	OpenDebugLog();
 #endif
@@ -892,6 +896,7 @@ static int AppExit()
 	FreeROMInfo();
 	DestroySubDir();
 	MediaExit();
+	RomDataFree();					// Release RomData drivers before the engine list
 	BurnLibExit();					// Exit the Burn library
 
 	DisableHighResolutionTiming();

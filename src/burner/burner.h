@@ -26,6 +26,7 @@
 #include "title.h"
 #include "burn.h"
 #include "joyprocess.h"
+#include "romdata_core.h"	// platform-independent RomData (.dat) core: RomDataScan/Free/LoadOne
 
 // ---------------------------------------------------------------------------
 // OS dependent functionality

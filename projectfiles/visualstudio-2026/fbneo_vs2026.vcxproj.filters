@@ -2980,6 +2980,12 @@
     <ClCompile Include="..\..\src\burner\nvram.cpp">
       <Filter>burner</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\burner\romdata_core.cpp">
+      <Filter>burner</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\burner\romdata_type.cpp">
+      <Filter>burner</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\burner\sshot.cpp">
       <Filter>burner</Filter>
     </ClCompile>

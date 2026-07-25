@@ -21,7 +21,8 @@ INT32 (__cdecl *bprintf)(INT32 nStatus, TCHAR* szFormat, ...) = BurnbprintfFille
 
 INT32 nBurnVer = BURN_VERSION;	// Version number of the library
 
-UINT32 nBurnDrvCount     = 0;	// Count of game drivers
+UINT32 nIntlDrvCount     = 0;	// Count of built-in game drivers
+UINT32 nBurnDrvCount     = 0;	// Count of game drivers (Built-in Games and RomData Games)
 UINT32 nBurnDrvActive    = ~0U;	// Which game driver is selected
 INT32 nBurnDrvSubActive  = -1;	// Which sub-game driver is selected
 UINT32 nBurnDrvSelect[8] = { ~0U, ~0U, ~0U, ~0U, ~0U, ~0U, ~0U, ~0U }; // Which games are selected (i.e. loaded but not necessarily active)
@@ -93,6 +94,12 @@ UINT32 *pBurnDrvPalette;
 static char** pszShortName = NULL, ** pszFullNameA = NULL;
 static wchar_t** pszFullNameW = NULL;
 
+// Dynamic driver list: takes over the static pDriver[] instances, plus every
+// dynamically created RomData driver appended at runtime via LinkExtlDrivers().
+// All runtime driver access goes through pDriverEx; the static pDriver[] is only
+// used as the compile-time source of the built-in drivers.
+static struct BurnDriver** pDriverEx = NULL;
+
 bool BurnCheckMMXSupport()
 {
 #if defined BUILD_X86_ASM
@@ -108,14 +115,14 @@ bool BurnCheckMMXSupport()
 
 static void BurnGameListInit()
 {	// Avoid broken references, RomData requires separate string storage
-	if (0 == nBurnDrvCount) return;
-	
-		pszShortName = (char**   )malloc(nBurnDrvCount * sizeof(char*));
-		pszFullNameA = (char**   )malloc(nBurnDrvCount * sizeof(char*));
-		pszFullNameW = (wchar_t**)malloc(nBurnDrvCount * sizeof(wchar_t*));
+	if (0 == nIntlDrvCount) return;
+
+		pszShortName = (char**   )malloc(nIntlDrvCount * sizeof(char*));
+		pszFullNameA = (char**   )malloc(nIntlDrvCount * sizeof(char*));
+		pszFullNameW = (wchar_t**)malloc(nIntlDrvCount * sizeof(wchar_t*));
 
 		if ((NULL != pszShortName) && (NULL != pszFullNameA) && (NULL != pszFullNameW)) {
-			for (UINT32 i = 0; i < nBurnDrvCount; i++) {
+			for (UINT32 i = 0; i < nIntlDrvCount; i++) {
 				pszShortName[i] = (char*   )malloc(100      * sizeof(char));
 				pszFullNameA[i] = (char*   )malloc(MAX_PATH * sizeof(char));
 				pszFullNameW[i] = (wchar_t*)malloc(MAX_PATH * sizeof(wchar_t));
@@ -146,7 +153,7 @@ static void BurnGameListInit()
 static void BurnGameListExit()
 {
 	// Release of storage space
-	for (UINT32 i = 0; i < nBurnDrvCount; i++) {
+	for (UINT32 i = 0; i < nIntlDrvCount; i++) {
 		if ((NULL != pszShortName) && (NULL != pszShortName[i])) free(pszShortName[i]);
 		if ((NULL != pszFullNameA) && (NULL != pszFullNameA[i])) free(pszFullNameA[i]);
 		if ((NULL != pszFullNameW) && (NULL != pszFullNameW[i])) free(pszFullNameW[i]);
@@ -154,13 +161,56 @@ static void BurnGameListExit()
 	if (NULL != pszShortName) free(pszShortName);
 	if (NULL != pszFullNameA) free(pszFullNameA);
 	if (NULL != pszFullNameW) free(pszFullNameW);
+	pszShortName = NULL; pszFullNameA = NULL; pszFullNameW = NULL;
+}
+
+// A dynamically created `pDriverEx` will directly reference the static `pDriver`
+static struct BurnDriver** LinkBurnDrivers(const UINT32 intlCount)
+{
+	if (intlCount <= 0)
+		return NULL;
+
+	struct BurnDriver** arr = (struct BurnDriver**)malloc(intlCount * sizeof(struct BurnDriver*));
+	if (!arr)
+		return NULL;
+
+	for (UINT32 i = 0; i < intlCount; i++)
+		arr[i] = pDriver[i];
+
+	return arr;
+}
+
+// In addition to taking over static pDriver instances, pDriverEx also takes over
+// every dynamically created RomData driver appended at the end of the list.
+extern "C" UINT32 LinkExtlDrivers(struct BurnDriver* drv, UINT32* pallCount)
+{
+	if (!drv || !pallCount)
+		return ~0U;
+
+	UINT32 i = *pallCount;
+
+	struct BurnDriver** arr = (struct BurnDriver**)realloc(pDriverEx, (i + 1) * sizeof(struct BurnDriver*));
+	if (!arr)
+		return ~0U;
+
+	pDriverEx    = arr;
+	pDriverEx[i] = drv;
+	*pallCount   = i + 1;
+
+	return *pallCount;
+}
+
+static void UnlinkDrivers()
+{
+	free_s((void**)&pDriverEx);
 }
 
 extern "C" INT32 BurnLibInit()
 {
 	BurnLibExit();
 
-	nBurnDrvCount = sizeof(pDriver) / sizeof(pDriver[0]);	// count available drivers
+	nIntlDrvCount = nBurnDrvCount = sizeof(pDriver) / sizeof(pDriver[0]);	// count available drivers
+	pDriverEx = LinkBurnDrivers(nIntlDrvCount);				// Link the static driver list into the extended driver list
 
 	BurnGameListInit();
 
@@ -174,7 +224,9 @@ extern "C" INT32 BurnLibInit()
 extern "C" INT32 BurnLibExit()
 {
 	BurnGameListExit();
+	UnlinkDrivers();
 
+	nIntlDrvCount = 0;
 	nBurnDrvCount = 0;
 
 	return 0;
@@ -190,20 +242,20 @@ INT32 BurnGetZipName(char** pszName, UINT32 i)
 	}
 
 	if (i == 0) {
-		pszGameName = pDriver[nBurnDrvActive]->szShortName;
+		pszGameName = pDriverEx[nBurnDrvActive]->szShortName;
 	} else {
 		INT32 nOldBurnDrvSelect = nBurnDrvActive;
-		UINT32 j = pDriver[nBurnDrvActive]->szBoardROM ? 1 : 0;
+		UINT32 j = pDriverEx[nBurnDrvActive]->szBoardROM ? 1 : 0;
 
 		// Try BIOS/board ROMs first
 		if (i == 1 && j == 1) {										// There is a BIOS/board ROM
-			pszGameName = pDriver[nBurnDrvActive]->szBoardROM;
+			pszGameName = pDriverEx[nBurnDrvActive]->szBoardROM;
 		}
 
 		if (pszGameName == NULL) {
 			// Go through the list to seek out the parent
 			while (j < i) {
-				char* pszParent = pDriver[nBurnDrvActive]->szParent;
+				char* pszParent = pDriverEx[nBurnDrvActive]->szParent;
 				pszGameName = NULL;
 
 				if (pszParent == NULL) {							// No parent
@@ -211,8 +263,8 @@ INT32 BurnGetZipName(char** pszName, UINT32 i)
 				}
 
 				for (nBurnDrvActive = 0; nBurnDrvActive < nBurnDrvCount; nBurnDrvActive++) {
-		            if (strcmp(pszParent, pDriver[nBurnDrvActive]->szShortName) == 0) {	// Found parent
-						pszGameName = pDriver[nBurnDrvActive]->szShortName;
+		            if (strcmp(pszParent, pDriverEx[nBurnDrvActive]->szShortName) == 0) {	// Found parent
+						pszGameName = pDriverEx[nBurnDrvActive]->szShortName;
 						break;
 					}
 				}
@@ -281,10 +333,10 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 		switch (i & 0xFF) {
 #if !defined(__LIBRETRO__) && !defined(BUILD_SDL) && !defined(BUILD_SDL2) && !defined(BUILD_MACOS)
 			case DRV_FULLNAME:
-				pszStringW = pDriver[nBurnDrvActive]->szFullNameW;
+				pszStringW = pDriverEx[nBurnDrvActive]->szFullNameW;
 
 				if (i & DRV_NEXTNAME) {
-					if (pszCurrentNameW && pDriver[nBurnDrvActive]->szFullNameW) {
+					if (pszCurrentNameW && pDriverEx[nBurnDrvActive]->szFullNameW) {
 						pszCurrentNameW += wcslen(pszCurrentNameW) + 1;
 						if (!pszCurrentNameW[0]) {
 							return NULL;
@@ -296,7 +348,7 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 #if !defined (_UNICODE)
 
 					// Ensure all of the Unicode titles are printable in the current locale
-					pszCurrentNameW = pDriver[nBurnDrvActive]->szFullNameW;
+					pszCurrentNameW = pDriverEx[nBurnDrvActive]->szFullNameW;
 					if (pszCurrentNameW && pszCurrentNameW[0]) {
 						INT32 nRet;
 
@@ -307,13 +359,13 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 
 						// If all titles can be printed, we can use the Unicode versions
 						if (nRet >= 0) {
-							pszStringW = pszCurrentNameW = pDriver[nBurnDrvActive]->szFullNameW;
+							pszStringW = pszCurrentNameW = pDriverEx[nBurnDrvActive]->szFullNameW;
 						}
 					}
 
 #else
 
-					pszStringW = pszCurrentNameW = pDriver[nBurnDrvActive]->szFullNameW;
+					pszStringW = pszCurrentNameW = pDriverEx[nBurnDrvActive]->szFullNameW;
 
 #endif
 
@@ -321,13 +373,13 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 				break;
 #endif // !defined(__LIBRETRO__) && !defined(BUILD_SDL)
 			case DRV_COMMENT:
-				pszStringW = pDriver[nBurnDrvActive]->szCommentW;
+				pszStringW = pDriverEx[nBurnDrvActive]->szCommentW;
 				break;
 			case DRV_MANUFACTURER:
-				pszStringW = pDriver[nBurnDrvActive]->szManufacturerW;
+				pszStringW = pDriverEx[nBurnDrvActive]->szManufacturerW;
 				break;
 			case DRV_SYSTEM:
-				pszStringW = pDriver[nBurnDrvActive]->szSystemW;
+				pszStringW = pDriverEx[nBurnDrvActive]->szSystemW;
 		}
 
 #if defined (_UNICODE)
@@ -387,16 +439,16 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 
 	switch (i & 0xFF) {
 		case DRV_NAME:
-			pszStringA = pDriver[nBurnDrvActive]->szShortName;
+			pszStringA = pDriverEx[nBurnDrvActive]->szShortName;
 			break;
 		case DRV_DATE:
-			pszStringA = pDriver[nBurnDrvActive]->szDate;
+			pszStringA = pDriverEx[nBurnDrvActive]->szDate;
 			break;
 		case DRV_FULLNAME:
-			pszStringA = pDriver[nBurnDrvActive]->szFullNameA;
+			pszStringA = pDriverEx[nBurnDrvActive]->szFullNameA;
 
 			if (i & DRV_NEXTNAME) {
-				if (!pszCurrentNameW && pDriver[nBurnDrvActive]->szFullNameA) {
+				if (!pszCurrentNameW && pDriverEx[nBurnDrvActive]->szFullNameA) {
 					pszCurrentNameA += strlen(pszCurrentNameA) + 1;
 					if (!pszCurrentNameA[0]) {
 						return NULL;
@@ -404,27 +456,27 @@ extern "C" TCHAR* BurnDrvGetText(UINT32 i)
 					pszStringA = pszCurrentNameA;
 				}
 			} else {
-				pszStringA = pszCurrentNameA = pDriver[nBurnDrvActive]->szFullNameA;
+				pszStringA = pszCurrentNameA = pDriverEx[nBurnDrvActive]->szFullNameA;
 				pszCurrentNameW = NULL;
 			}
 			break;
 		case DRV_COMMENT:
-			pszStringA = pDriver[nBurnDrvActive]->szCommentA;
+			pszStringA = pDriverEx[nBurnDrvActive]->szCommentA;
 			break;
 		case DRV_MANUFACTURER:
-			pszStringA = pDriver[nBurnDrvActive]->szManufacturerA;
+			pszStringA = pDriverEx[nBurnDrvActive]->szManufacturerA;
 			break;
 		case DRV_SYSTEM:
-			pszStringA = pDriver[nBurnDrvActive]->szSystemA;
+			pszStringA = pDriverEx[nBurnDrvActive]->szSystemA;
 			break;
 		case DRV_PARENT:
-			pszStringA = pDriver[nBurnDrvActive]->szParent;
+			pszStringA = pDriverEx[nBurnDrvActive]->szParent;
 			break;
 		case DRV_BOARDROM:
-			pszStringA = pDriver[nBurnDrvActive]->szBoardROM;
+			pszStringA = pDriverEx[nBurnDrvActive]->szBoardROM;
 			break;
 		case DRV_SAMPLENAME:
-			pszStringA = pDriver[nBurnDrvActive]->szSampleName;
+			pszStringA = pDriverEx[nBurnDrvActive]->szSampleName;
 	}
 
 #if defined (_UNICODE)
@@ -493,23 +545,23 @@ extern "C" char* BurnDrvGetTextA(UINT32 i)
 {
 	switch (i) {
 		case DRV_NAME:
-			return pDriver[nBurnDrvActive]->szShortName;
+			return pDriverEx[nBurnDrvActive]->szShortName;
 		case DRV_DATE:
-			return pDriver[nBurnDrvActive]->szDate;
+			return pDriverEx[nBurnDrvActive]->szDate;
 		case DRV_FULLNAME:
-			return pDriver[nBurnDrvActive]->szFullNameA;
+			return pDriverEx[nBurnDrvActive]->szFullNameA;
 		case DRV_COMMENT:
-			return pDriver[nBurnDrvActive]->szCommentA;
+			return pDriverEx[nBurnDrvActive]->szCommentA;
 		case DRV_MANUFACTURER:
-			return pDriver[nBurnDrvActive]->szManufacturerA;
+			return pDriverEx[nBurnDrvActive]->szManufacturerA;
 		case DRV_SYSTEM:
-			return pDriver[nBurnDrvActive]->szSystemA;
+			return pDriverEx[nBurnDrvActive]->szSystemA;
 		case DRV_PARENT:
-			return pDriver[nBurnDrvActive]->szParent;
+			return pDriverEx[nBurnDrvActive]->szParent;
 		case DRV_BOARDROM:
-			return pDriver[nBurnDrvActive]->szBoardROM;
+			return pDriverEx[nBurnDrvActive]->szBoardROM;
 		case DRV_SAMPLENAME:
-			return pDriver[nBurnDrvActive]->szSampleName;
+			return pDriverEx[nBurnDrvActive]->szSampleName;
 		default:
 			return NULL;
 	}
@@ -544,10 +596,12 @@ INT32 BurnDrvSetFullNameW(TCHAR* szName, INT32 i = nBurnDrvActive)
 #if defined (_UNICODE)
 void BurnLocalisationSetName(char* szName, TCHAR* szLongName)
 {
-	for (UINT32 i = 0; i < nBurnDrvCount; i++) {
+	// RomData has its own game name storage; this only handles built-in drivers,
+	// which is also the range covered by the pszFullNameW[] array.
+	for (UINT32 i = 0; i < nIntlDrvCount; i++) {
 		nBurnDrvActive = i;
-		if (!strcmp(szName, pDriver[i]->szShortName)) {
-//			pDriver[i]->szFullNameW = szLongName;
+		if (!strcmp(szName, pDriverEx[i]->szShortName)) {
+//			pDriverEx[i]->szFullNameW = szLongName;
 			memset(pszFullNameW[i], '\0', MAX_PATH * sizeof(wchar_t));
 			_tcscpy(pszFullNameW[i], szLongName);
 		}
@@ -574,7 +628,7 @@ static void BurnLocalisationSetNameEx()
 
 	char szShortNames[100] = { '\0'};
 
-	sprintf(szShortNames, "%s[0x%02x]", pDriver[nBurnDrvActive]->szShortName, nBurnDrvSubActive);
+	sprintf(szShortNames, "%s[0x%02x]", pDriverEx[nBurnDrvActive]->szShortName, nBurnDrvSubActive);
 
 	for (INT32 nIndex = 0; nIndex < nNamesExArray; nIndex++) {
 		if (0 == strcmp(szShortNamesExArray[nIndex], szShortNames)) {
@@ -590,7 +644,9 @@ extern "C" INT32 BurnDrvGetIndex(char* szName)
 	if (NULL == szName) return -1;
 
 	for (UINT32 i = 0; i < nBurnDrvCount; i++) {
-		if (0 == strcmp(szName, pDriver[i]->szShortName)) {
+		if (!pDriverEx || !pDriverEx[i] || !pDriverEx[i]->szShortName)
+			continue;
+		if (0 == strcmp(szName, pDriverEx[i]->szShortName)) {
 //			nBurnDrvActive = i;
 			return i;
 		}
@@ -601,14 +657,28 @@ extern "C" INT32 BurnDrvGetIndex(char* szName)
 
 extern "C" wchar_t* BurnDrvGetFullNameW(UINT32 i)
 {
-	return pDriver[i]->szFullNameW;
+	return pDriverEx[i]->szFullNameW;
+}
+
+// Look up a driver pointer by its short name (used by RomData to clone a base driver)
+extern "C" struct BurnDriver* BurnGetDriver(const char* szName)
+{
+	if (!szName) return NULL;
+
+	for (UINT32 i = 0; i < nBurnDrvCount; i++) {
+		if (!pDriverEx || !pDriverEx[i] || !pDriverEx[i]->szShortName)
+			continue;
+		if (0 == strcmp(szName, pDriverEx[i]->szShortName))
+			return pDriverEx[i];
+	}
+	return NULL;
 }
 
 // Get the zip names for the driver
 extern "C" INT32 BurnDrvGetZipName(char** pszName, UINT32 i)
 {
-	if (pDriver[nBurnDrvActive]->GetZipName) {									// Forward to drivers function
-		return pDriver[nBurnDrvActive]->GetZipName(pszName, i);
+	if (pDriverEx[nBurnDrvActive]->GetZipName) {									// Forward to drivers function
+		return pDriverEx[nBurnDrvActive]->GetZipName(pszName, i);
 	}
 
 	return BurnGetZipName(pszName, i);											// Forward to general function
@@ -625,23 +695,23 @@ extern "C" INT32 BurnDrvSetZipName(char* szName, INT32 i)
 
 extern "C" INT32 BurnDrvGetRomInfo(struct BurnRomInfo* pri, UINT32 i)		// Forward to drivers function
 {
-	return pDriver[nBurnDrvActive]->GetRomInfo(pri, i);
+	return pDriverEx[nBurnDrvActive]->GetRomInfo(pri, i);
 }
 
 extern "C" INT32 BurnDrvGetRomName(char** pszName, UINT32 i, INT32 nAka)		// Forward to drivers function
 {
-	return pDriver[nBurnDrvActive]->GetRomName(pszName, i, nAka);
+	return pDriverEx[nBurnDrvActive]->GetRomName(pszName, i, nAka);
 }
 
 extern "C" INT32 BurnDrvGetInputInfo(struct BurnInputInfo* pii, UINT32 i)	// Forward to drivers function
 {
-	return pDriver[nBurnDrvActive]->GetInputInfo(pii, i);
+	return pDriverEx[nBurnDrvActive]->GetInputInfo(pii, i);
 }
 
 extern "C" INT32 BurnDrvGetDIPInfo(struct BurnDIPInfo* pdi, UINT32 i)
 {
-	if (pDriver[nBurnDrvActive]->GetDIPInfo) {									// Forward to drivers function
-		return pDriver[nBurnDrvActive]->GetDIPInfo(pdi, i);
+	if (pDriverEx[nBurnDrvActive]->GetDIPInfo) {									// Forward to drivers function
+		return pDriverEx[nBurnDrvActive]->GetDIPInfo(pdi, i);
 	}
 
 	return 1;																	// Fail automatically
@@ -649,18 +719,18 @@ extern "C" INT32 BurnDrvGetDIPInfo(struct BurnDIPInfo* pdi, UINT32 i)
 
 extern "C" INT32 BurnDrvGetSampleInfo(struct BurnSampleInfo* pri, UINT32 i)		// Forward to drivers function
 {
-	return pDriver[nBurnDrvActive]->GetSampleInfo(pri, i);
+	return pDriverEx[nBurnDrvActive]->GetSampleInfo(pri, i);
 }
 
 extern "C" INT32 BurnDrvGetSampleName(char** pszName, UINT32 i, INT32 nAka)		// Forward to drivers function
 {
-	return pDriver[nBurnDrvActive]->GetSampleName(pszName, i, nAka);
+	return pDriverEx[nBurnDrvActive]->GetSampleName(pszName, i, nAka);
 }
 
 extern "C" INT32 BurnDrvGetHDDInfo(struct BurnHDDInfo* pri, UINT32 i)		// Forward to drivers function
 {
-	if (pDriver[nBurnDrvActive]->GetHDDInfo) {
-		return pDriver[nBurnDrvActive]->GetHDDInfo(pri, i);
+	if (pDriverEx[nBurnDrvActive]->GetHDDInfo) {
+		return pDriverEx[nBurnDrvActive]->GetHDDInfo(pri, i);
 	} else {
 		return 0;
 	}
@@ -668,8 +738,8 @@ extern "C" INT32 BurnDrvGetHDDInfo(struct BurnHDDInfo* pri, UINT32 i)		// Forwar
 
 extern "C" INT32 BurnDrvGetHDDName(char** pszName, UINT32 i, INT32 nAka)		// Forward to drivers function
 {
-	if (pDriver[nBurnDrvActive]->GetHDDName) {
-		return pDriver[nBurnDrvActive]->GetHDDName(pszName, i, nAka);
+	if (pDriverEx[nBurnDrvActive]->GetHDDName) {
+		return pDriverEx[nBurnDrvActive]->GetHDDName(pszName, i, nAka);
 	} else {
 		return 0;
 	}
@@ -678,8 +748,8 @@ extern "C" INT32 BurnDrvGetHDDName(char** pszName, UINT32 i, INT32 nAka)		// For
 // Get the screen size
 extern "C" INT32 BurnDrvGetVisibleSize(INT32* pnWidth, INT32* pnHeight)
 {
-	*pnWidth =pDriver[nBurnDrvActive]->nWidth;
-	*pnHeight=pDriver[nBurnDrvActive]->nHeight;
+	*pnWidth =pDriverEx[nBurnDrvActive]->nWidth;
+	*pnHeight=pDriverEx[nBurnDrvActive]->nHeight;
 
 	return 0;
 }
@@ -694,12 +764,12 @@ extern "C" INT32 BurnDrvGetVisibleOffs(INT32* pnLeft, INT32* pnTop)
 
 extern "C" INT32 BurnDrvGetFullSize(INT32* pnWidth, INT32* pnHeight)
 {
-	if (pDriver[nBurnDrvActive]->Flags & BDF_ORIENTATION_VERTICAL) {
-		*pnWidth =pDriver[nBurnDrvActive]->nHeight;
-		*pnHeight=pDriver[nBurnDrvActive]->nWidth;
+	if (pDriverEx[nBurnDrvActive]->Flags & BDF_ORIENTATION_VERTICAL) {
+		*pnWidth =pDriverEx[nBurnDrvActive]->nHeight;
+		*pnHeight=pDriverEx[nBurnDrvActive]->nWidth;
 	} else {
-		*pnWidth =pDriver[nBurnDrvActive]->nWidth;
-		*pnHeight=pDriver[nBurnDrvActive]->nHeight;
+		*pnWidth =pDriverEx[nBurnDrvActive]->nWidth;
+		*pnHeight=pDriverEx[nBurnDrvActive]->nHeight;
 	}
 
 	return 0;
@@ -708,20 +778,20 @@ extern "C" INT32 BurnDrvGetFullSize(INT32* pnWidth, INT32* pnHeight)
 // Get screen aspect ratio
 extern "C" INT32 BurnDrvGetAspect(INT32* pnXAspect, INT32* pnYAspect)
 {
-	*pnXAspect = pDriver[nBurnDrvActive]->nXAspect;
-	*pnYAspect = pDriver[nBurnDrvActive]->nYAspect;
+	*pnXAspect = pDriverEx[nBurnDrvActive]->nXAspect;
+	*pnYAspect = pDriverEx[nBurnDrvActive]->nYAspect;
 
 	return 0;
 }
 
 extern "C" INT32 BurnDrvSetVisibleSize(INT32 pnWidth, INT32 pnHeight)
 {
-	if (pDriver[nBurnDrvActive]->Flags & BDF_ORIENTATION_VERTICAL) {
-		pDriver[nBurnDrvActive]->nHeight = pnWidth;
-		pDriver[nBurnDrvActive]->nWidth = pnHeight;
+	if (pDriverEx[nBurnDrvActive]->Flags & BDF_ORIENTATION_VERTICAL) {
+		pDriverEx[nBurnDrvActive]->nHeight = pnWidth;
+		pDriverEx[nBurnDrvActive]->nWidth = pnHeight;
 	} else {
-		pDriver[nBurnDrvActive]->nWidth = pnWidth;
-		pDriver[nBurnDrvActive]->nHeight = pnHeight;
+		pDriverEx[nBurnDrvActive]->nWidth = pnWidth;
+		pDriverEx[nBurnDrvActive]->nHeight = pnHeight;
 	}
 
 	return 0;
@@ -729,8 +799,8 @@ extern "C" INT32 BurnDrvSetVisibleSize(INT32 pnWidth, INT32 pnHeight)
 
 extern "C" INT32 BurnDrvSetAspect(INT32 pnXAspect,INT32 pnYAspect)
 {
-	pDriver[nBurnDrvActive]->nXAspect = pnXAspect;
-	pDriver[nBurnDrvActive]->nYAspect = pnYAspect;
+	pDriverEx[nBurnDrvActive]->nXAspect = pnXAspect;
+	pDriverEx[nBurnDrvActive]->nYAspect = pnYAspect;
 
 	return 0;
 }
@@ -738,43 +808,43 @@ extern "C" INT32 BurnDrvSetAspect(INT32 pnXAspect,INT32 pnYAspect)
 // Get the hardware code
 extern "C" INT32 BurnDrvGetHardwareCode()
 {
-	return pDriver[nBurnDrvActive]->Hardware;
+	return pDriverEx[nBurnDrvActive]->Hardware;
 }
 
 // Get flags, including BDF_GAME_WORKING flag
 extern "C" INT32 BurnDrvGetFlags()
 {
-	return pDriver[nBurnDrvActive]->Flags;
+	return pDriverEx[nBurnDrvActive]->Flags;
 }
 
 // Return BDF_WORKING flag
 extern "C" bool BurnDrvIsWorking()
 {
-	return pDriver[nBurnDrvActive]->Flags & BDF_GAME_WORKING;
+	return pDriverEx[nBurnDrvActive]->Flags & BDF_GAME_WORKING;
 }
 
 // Return max. number of players
 extern "C" INT32 BurnDrvGetMaxPlayers()
 {
-	return pDriver[nBurnDrvActive]->Players;
+	return pDriverEx[nBurnDrvActive]->Players;
 }
 
 // Return genre flags
 extern "C" INT32 BurnDrvGetGenreFlags()
 {
-	return pDriver[nBurnDrvActive]->Genre;
+	return pDriverEx[nBurnDrvActive]->Genre;
 }
 
 // Return family flags
 extern "C" INT32 BurnDrvGetFamilyFlags()
 {
-	return pDriver[nBurnDrvActive]->Family;
+	return pDriverEx[nBurnDrvActive]->Family;
 }
 
 // Return sourcefile
 extern "C" char* BurnDrvGetSourcefile()
 {
-	char* szShortName = pDriver[nBurnDrvActive]->szShortName;
+	char* szShortName = pDriverEx[nBurnDrvActive]->szShortName;
 	for (INT32 i = 0; sourcefile_table[i].game_name[0] != '\0'; i++) {
 		if (!strcmp(sourcefile_table[i].game_name, szShortName)) {
 			return sourcefile_table[i].sourcefile;
@@ -886,13 +956,13 @@ extern "C" INT32 BurnDrvInit()
 	BurnSoundDCFilterReset();
 	BurnTimerPreInit();
 
-	nReturnValue = pDriver[nBurnDrvActive]->Init();	// Forward to drivers function
+	nReturnValue = pDriverEx[nBurnDrvActive]->Init();	// Forward to drivers function
 
 	if (-1 != nBurnDrvSubActive) {
 		BurnLocalisationSetNameEx();
 	}
 
-	nMaxPlayers = pDriver[nBurnDrvActive]->Players;
+	nMaxPlayers = pDriverEx[nBurnDrvActive]->Players;
 
 	nCurrentFrame = 0;
 
@@ -955,7 +1025,7 @@ extern "C" INT32 BurnDrvExit()
 #endif
 	}
 
-	INT32 nRet = pDriver[nBurnDrvActive]->Exit();			// Forward to drivers function
+	INT32 nRet = pDriverEx[nBurnDrvActive]->Exit();			// Forward to drivers function
 
 	nBurnDrvSubActive = -1;	// Rest to -1;
 
@@ -978,7 +1048,7 @@ INT32 BurnDrvCartridgeSetup(BurnCartrigeCommand nCommand)
 	}
 
 	if (nCommand == CART_EXIT) {
-		return pDriver[nBurnDrvActive]->Exit();
+		return pDriverEx[nBurnDrvActive]->Exit();
 	}
 
 	if (nCommand != CART_INIT_END && nCommand != CART_INIT_START) {
@@ -996,7 +1066,7 @@ INT32 BurnDrvCartridgeSetup(BurnCartrigeCommand nCommand)
 	}
 
 	if (nCommand == CART_INIT_START) {
-		return pDriver[nBurnDrvActive]->Init();
+		return pDriverEx[nBurnDrvActive]->Init();
 	}
 
 	return 0;
@@ -1007,14 +1077,14 @@ extern "C" INT32 BurnDrvFrame()
 {
 	CheatApply();									// Apply cheats (if any)
 	HiscoreApply();
-	return pDriver[nBurnDrvActive]->Frame();		// Forward to drivers function
+	return pDriverEx[nBurnDrvActive]->Frame();		// Forward to drivers function
 }
 
 // Force redraw of the screen
 extern "C" INT32 BurnDrvRedraw()
 {
-	if (pDriver[nBurnDrvActive]->Redraw) {
-		return pDriver[nBurnDrvActive]->Redraw();	// Forward to drivers function
+	if (pDriverEx[nBurnDrvActive]->Redraw) {
+		return pDriverEx[nBurnDrvActive]->Redraw();	// Forward to drivers function
 	}
 
 	return 1;										// No funtion provide, so simply return
@@ -1024,7 +1094,7 @@ extern "C" INT32 BurnDrvRedraw()
 extern "C" INT32 BurnRecalcPal()
 {
 	if (nBurnDrvActive < nBurnDrvCount) {
-		UINT8* pr = pDriver[nBurnDrvActive]->pRecalcPal;
+		UINT8* pr = pDriverEx[nBurnDrvActive]->pRecalcPal;
 		if (pr == NULL) return 1;
 		*pr = 1;									// Signal for the driver to refresh it's palette
 	}
@@ -1034,7 +1104,7 @@ extern "C" INT32 BurnRecalcPal()
 
 extern "C" INT32 BurnDrvGetPaletteEntries()
 {
-	return pDriver[nBurnDrvActive]->nPaletteEntries;
+	return pDriverEx[nBurnDrvActive]->nPaletteEntries;
 }
 
 // ----------------------------------------------------------------------------
@@ -1124,7 +1194,7 @@ inline static INT32 BurnClearSize(INT32 w, INT32 h)
 
 INT32 BurnClearScreen()
 {
-	struct BurnDriver* pbd = pDriver[nBurnDrvActive];
+	struct BurnDriver* pbd = pDriverEx[nBurnDrvActive];
 
 	if (pbd->Flags & BDF_ORIENTATION_VERTICAL) {
 		BurnClearSize(pbd->nHeight, pbd->nWidth);
@@ -1208,8 +1278,8 @@ INT32 BurnAreaScan(INT32 nAction, INT32* pnMin)
 	}
 
 	// Forward to the driver
-	if (pDriver[nBurnDrvActive]->AreaScan) {
-		nRet |= pDriver[nBurnDrvActive]->AreaScan(nAction, pnMin);
+	if (pDriverEx[nBurnDrvActive]->AreaScan) {
+		nRet |= pDriverEx[nBurnDrvActive]->AreaScan(nAction, pnMin);
 	}
 
 #ifdef __LIBRETRO__

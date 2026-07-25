@@ -341,7 +341,8 @@ extern bool bBurnUseBlend;
 extern INT32 nBurnFPS;
 extern INT32 nBurnCPUSpeedAdjust;
 
-extern UINT32 nBurnDrvCount;		// Count of game drivers
+extern UINT32 nIntlDrvCount;		// Count of built-in game drivers (excludes RomData drivers)
+extern UINT32 nBurnDrvCount;		// Count of game drivers (built-in + RomData drivers)
 extern UINT32 nBurnDrvActive;		// Which game driver is selected
 extern INT32 nBurnDrvSubActive;		// Which sub-game driver is selected
 extern UINT32 nBurnDrvSelect[8];	// Which games are selected (i.e. loaded but not necessarily active)
@@ -474,6 +475,8 @@ char* BurnDrvGetTextA(UINT32 i);
 wchar_t* BurnDrvGetFullNameW(UINT32 i);
 
 INT32 BurnDrvGetIndex(char* szName);
+struct BurnDriver* BurnGetDriver(const char* szName);
+UINT32 LinkExtlDrivers(struct BurnDriver* drv, UINT32* pallCount);
 INT32 BurnDrvGetZipName(char** pszName, UINT32 i);
 INT32 BurnDrvSetZipName(char* szName, INT32 i);
 INT32 BurnDrvGetRomInfo(struct BurnRomInfo *pri, UINT32 i);
@@ -555,6 +558,7 @@ int BurnComputeSHA1(const UINT8 *buffer, int buffer_size, char *hash_str);
 #define BDF_HISCORE_SUPPORTED							(1 << 12)
 #define BDF_RUNAHEAD_DRAWSYNC							(1 << 13)
 #define BDF_RUNAHEAD_DISABLED							(1 << 14)
+#define BDF_ROMDATA_DRIVER								(1 << 15)	// Driver injected at runtime from a user RomData (.dat)
 
 // Flags for the hardware member
 // Format: 0xDDEEFFFF, where DD: Manufacturer, EE: Hardware platform, FFFF: Flags (used by driver)

@@ -1838,6 +1838,15 @@ static void RomdataListFindDats(const TCHAR* dirPath)
 
 bool FindZipNameFromDats(const TCHAR* dirPath, const char* pszZipName, TCHAR* pszFindDat)
 {
+	// The new platform-independent RomData core (romdata_core.cpp, wired in via
+	// RomDataScan() at start-up) turns every support/romdata/*.dat into its own
+	// first-class driver-list entry.  The legacy in-place-rewrite flow below would
+	// otherwise hijack a built-in driver's launch when a .dat matches its ZipName,
+	// conflicting with those new entries.  Returning false here keeps the legacy
+	// activation gate permanently closed, so the old RomDataInit/RomDataExit path
+	// never arms itself (szRomdataName stays empty -> LoadRomdata() is a no-op).
+	return false;
+
 	if (IS_STRING_EMPTY(dirPath)) return false;
 	if (NULL == pszZipName)       return false;
 
