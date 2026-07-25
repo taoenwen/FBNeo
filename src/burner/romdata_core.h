@@ -17,7 +17,7 @@ INT32 RomDataLoadOne(const TCHAR* szDatPath);
 bool  IsRomDataDrv(void);
 char* RomDataDrvGetDrvName(void);
 struct BurnRomInfo* RomDataDrvGetRomInfo(UINT32* pRomCount);
-void  NeoProcessExtraRom(UINT8* rom);
+const char* RomDataDrvGetExtName(void);
 bool RomDataLookupMacro(const char* pszName, UINT32* pOut);
 
 #ifdef __cplusplus

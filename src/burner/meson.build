@@ -8,6 +8,8 @@ fbneo_burner_sources = [
     'inputbuf.cpp',
     'ioapi.c',
     'misc.cpp',
+    'romdata_core.cpp',
+    'romdata_type.cpp',
     'sshot.cpp',
     'state.cpp',
     'statec.cpp',

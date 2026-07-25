@@ -56,7 +56,7 @@ alldir	+= 	burner burner/sdl burner/sdl dep/libs/libspng dep/libs/lib7z dep/libs
 
 depobj	+= 	neocdlist.o \
 			\
-			conc.o cong.o dat.o gamc.o gami.o image.o ioapi.o misc.o sshot.o state.o statec.o unzip.o zipfn.o \
+			conc.o cong.o dat.o gamc.o gami.o image.o ioapi.o misc.o romdata_core.o romdata_type.o sshot.o state.o statec.o unzip.o zipfn.o \
 			\
 			adler32.o compress.o crc32.o deflate.o gzclose.o gzlib.o gzread.o gzwrite.o infback.o inffast.o inflate.o inftrees.o \
 			trees.o uncompr.o zutil.o \

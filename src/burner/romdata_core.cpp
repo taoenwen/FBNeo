@@ -4,7 +4,6 @@
 
 #include "burnint.h"
 #include "romdata_core.h"
-#include "m68000_intf.h"	// SekMapMemory (Neo Geo ExtraRom mapping)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,11 +52,12 @@ struct RomDataDrv {
 	struct BurnDriver   drv;			// embedded engine driver (appended to pDriverEx)
 	struct BurnRomInfo* pRomInfo;		// the ONE ROM table (final form, owns szName)
 	UINT32              nRomInfoCount;
-	char*               pszZipName;		// overridden short name (romset filename)
-	char*               pszParent;		// overridden parent short name
-	char*               pszFullNameA;	// overridden full name (ANSI)
-	wchar_t*            pszFullNameW;	// overridden full name (wide, UNICODE builds)
-	char*               pszExtraRom;	// optional Neo Geo ExtraRom name
+	char*               pszShortName;
+	char*               pszDrvName;
+	char*               pszDate;
+	char*               pszFullNameA;
+	wchar_t*            pszFullNameW;
+	char*               pszExtName;
 };
 
 static struct RomDataDrv** pRDDrv      = NULL;	// array of RomData records
@@ -264,9 +264,9 @@ static bool rd_hex(const char* s, UINT32* out)
 struct RomDataParsed {
 	char   szZipName[128];
 	char   szDrvName[128];
+	char   szDate[32];
 	char   szExtraRom[128];
 	char   szFullName[MAX_PATH];
-	INT32  nDatMode;								// 0 = FBNeo style, 1 = Nebula style
 	struct BurnRomInfo* pRomInfo;					// malloc'd table (owns each szName)
 	UINT32 nRomInfoCount;
 };
@@ -276,9 +276,8 @@ static void rd_parsed_free(struct RomDataParsed* pp)
 	if (!pp) return;
 	if (pp->pRomInfo) {
 		for (UINT32 i = 0; i < pp->nRomInfoCount; i++)
-			free(pp->pRomInfo[i].szName);
-		free(pp->pRomInfo);
-		pp->pRomInfo = NULL;
+			free_s((void**)&pp->pRomInfo[i].szName);
+		free_s((void**)&pp->pRomInfo);
 	}
 	pp->nRomInfoCount = 0;
 }
@@ -315,7 +314,7 @@ static INT32 rd_copy_base_entry(struct RomDataParsed* pp)
 	return 0;
 }
 
-static INT32 rd_parse_rom_entry(char* pName, char** ppSaved, INT32 nDatMode,
+static INT32 rd_parse_rom_entry(char* pName, char** ppSaved,
 								struct RomDataParsed* pp)
 {
 	if (rd_is_empty(pName)) return -1;
@@ -325,9 +324,6 @@ static INT32 rd_parse_rom_entry(char* pName, char** ppSaved, INT32 nDatMode,
 	ri.nLen = ~0U; ri.nCrc = ~0U; ri.nType = 0;
 
 	char* tok;
-	if (1 == nDatMode)
-		rd_qtoken(NULL, ppSaved);					// Nebula: skip first field
-
 	tok = rd_qtoken(NULL, ppSaved);
 	if (!tok || !rd_hex(tok, &ri.nLen) || 0 == ri.nLen || ~0U == ri.nLen) return -1;
 
@@ -362,7 +358,7 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 	memset(pp, 0, sizeof(*pp));
 
 	INT32 nIndex = -1;
-	bool bHaveZip = false, bHaveDrv = false, bHaveFull = false;
+	bool bHaveZip = false, bHaveDrv = false, bHaveDate = false, bHaveFull = false, bHaveExtra = false;
 
 	char* line;
 	char* nextLine = text;
@@ -377,16 +373,6 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 		char* label = rd_qtoken(line, &saved);
 		if (!label) continue;
 		if ('/' == label[0] && '/' == label[1]) continue;					// comment
-
-		size_t nLen = strlen(label);
-
-		// [Section] header (Nebula grouping) -> skip.
-		if (nLen > 2 && '[' == label[0] && ']' == label[nLen - 1]) {
-			label[nLen - 1] = '\0'; label++;
-			if (0 == strcmp("System", label)) break;						// end of entries
-			continue;
-		}
-		if (0 == strcmp("System", label)) { pp->nDatMode = 1; continue; }	// Nebula marker
 
 		if (0 == strcmp("ShortName", label) || 0 == strcmp("ZipName", label) || 0 == strcmp("RomName", label)) {
 			if (bHaveZip) continue;
@@ -406,12 +392,17 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 			bHaveDrv = true; continue;
 		}
 		if (0 == strcmp("Date", label) || 0 == strcmp("Release", label)) {
-			continue;														// date currently unused
+			if (bHaveDate) continue;
+			char* v = rd_qtoken(NULL, &saved);
+			if (!rd_is_empty(v) && strlen(v) < (int)sizeof(pp->szDate))
+				strncpy(pp->szDate, v, sizeof(pp->szDate) - 1);
+			bHaveDate = true; continue;
 		}
 		if (0 == strcmp("ExtraRom", label)) {
+			if (bHaveExtra) continue;
 			char* v = rd_qtoken(NULL, &saved);
 			if (!rd_is_empty(v) && strlen(v) <= 99) { strncpy(pp->szExtraRom, v, sizeof(pp->szExtraRom) - 1); }
-			continue;
+			bHaveExtra = true; continue;
 		}
 		if (0 == strcmp("FullName", label) || 0 == strcmp("Game", label)) {
 			if (bHaveFull) continue;
@@ -432,7 +423,7 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 		if (0 == strcmp(label, "*"))
 			r = rd_copy_base_entry(pp);										// 0=copied, 1=skip, <0=error
 		else
-			r = rd_parse_rom_entry(label, &saved, pp->nDatMode, pp);
+			r = rd_parse_rom_entry(label, &saved, pp);
 		if (r < 0) return r;
 	}
 
@@ -468,27 +459,26 @@ static INT32 RomDataGetRomName(char** pszName, UINT32 i, INT32 nAka)
 {
 	struct RomDataDrv* rd = rd_active();
 	if (!rd || i >= rd->nRomInfoCount) return 1;
-	if (nAka) return 1;								// RomData has no alternate names
+	if (nAka) return 1;														// RomData has no alternate names
 	if (pszName) *pszName = rd->pRomInfo[i].szName;
 	return 0;
 }
 
-// =============================================================================
 //  Build + link a RomData driver from parsed data.
-// =============================================================================
 static void rd_free_record(struct RomDataDrv* rec)
 {
 	if (!rec) return;
 	if (rec->pRomInfo) {
 		for (UINT32 i = 0; i < rec->nRomInfoCount; i++)
-			free(rec->pRomInfo[i].szName);
-		free(rec->pRomInfo);
+			free_s((void**)&rec->pRomInfo[i].szName);
+		free_s((void**)&rec->pRomInfo);
 	}
-	free(rec->pszZipName);
-	free(rec->pszParent);
-	free(rec->pszFullNameA);
-	free(rec->pszFullNameW);
-	free(rec->pszExtraRom);
+	free_s((void**)&rec->pszShortName);
+	free_s((void**)&rec->pszDrvName);
+	free_s((void**)&rec->pszDate);
+	free_s((void**)&rec->pszFullNameA);
+	free_s((void**)&rec->pszFullNameW);
+	free_s((void**)&rec->pszExtName);
 	free(rec);
 }
 
@@ -498,7 +488,7 @@ static wchar_t* rd_utf8_to_wide(const char* s)
 #ifdef BUILD_WIN32
 	INT32 wn = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
 	INT32 cp = CP_UTF8;
-	if (wn <= 0) {												// not valid UTF-8: system code page
+	if (wn <= 0) {															// not valid UTF-8: system code page
 		cp = CP_ACP;
 		wn = MultiByteToWideChar(CP_ACP, 0, s, -1, NULL, 0);
 		if (wn <= 0) return NULL;
@@ -533,12 +523,21 @@ static wchar_t* rd_utf8_to_wide(const char* s)
 static INT32 rd_build_and_link(struct RomDataParsed* pp)
 {
 	INT32 nBaseIdx = BurnDrvGetIndex(pp->szDrvName);
-	if (nBaseIdx < 0) return -1;
+	if (nBaseIdx < 0) {
+		bprintf(PRINT_ERROR, _T("RomData: base driver '%hs' not found\n"),               pp->szDrvName);
+		return -1;
+	}
 	struct BurnDriver* base = BurnGetDriver(pp->szDrvName);
-	if (!base) return -1;
+	if (!base) {
+		bprintf(PRINT_ERROR, _T("RomData: failed to look up base driver '%hs'\n"),       pp->szDrvName);
+		return -1;
+	}
 
 	struct RomDataDrv* rec = (struct RomDataDrv*)calloc(1, sizeof(struct RomDataDrv));
-	if (!rec) return -1;
+	if (!rec) {
+		bprintf(PRINT_ERROR, _T("RomData: out of memory allocating record for '%hs'\n"), pp->szZipName);
+		return -1;
+	}
 
 	// Shallow-copy the base driver: inherit every field / function pointer.
 	memcpy(&rec->drv, base, sizeof(struct BurnDriver));
@@ -550,47 +549,57 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 	pp->nRomInfoCount  = 0;
 
 	// Overridden identity strings.
-	rec->pszZipName = rd_strdup(pp->szZipName);
-	// Parent: if the base is a clone keep its parent, else the base itself.
-	{
-		const char* parent = base->szParent;
-		bool baseIsClone = (base->Flags & BDF_CLONE) != 0;
-		rec->pszParent = rd_strdup((parent && baseIsClone) ? parent : pp->szDrvName);
-	}
+	rec->pszShortName = rd_strdup(pp->szZipName);
+	rec->pszDrvName   = rd_strdup(pp->szDrvName);
+	rec->pszDate      = !rd_is_empty(pp->szDate) ? rd_strdup(pp->szDate) : NULL;
 	rec->pszFullNameA = rd_strdup(pp->szFullName);
+#ifdef _UNICODE
 	rec->pszFullNameW = rd_utf8_to_wide(pp->szFullName);
-	if (!rd_is_empty(pp->szExtraRom)) rec->pszExtraRom = rd_strdup(pp->szExtraRom);
+#else
+	rec->pszFullNameW = NULL;
+#endif
+	if (!rd_is_empty(pp->szExtraRom)) rec->pszExtName = rd_strdup(pp->szExtraRom);
 
-	if (!rec->pszZipName || !rec->pszParent || !rec->pszFullNameA || !rec->pszFullNameW) {
+	if (!rec->pszShortName || !rec->pszDrvName || !rec->pszFullNameA
+#ifdef _UNICODE
+		|| !rec->pszFullNameW
+#endif
+	) {
+		bprintf(PRINT_ERROR, _T("RomData: out of memory duplicating strings for '%hs'\n"), pp->szZipName);
 		rd_free_record(rec);
 		return -1;
 	}
 
-	// Point the driver at our overridden fields + ROM accessors.
-	rec->drv.szShortName = rec->pszZipName;
-	rec->drv.szParent    = rec->pszParent;
+	rec->drv.szShortName = rec->pszShortName;
+	rec->drv.szParent    = base->szParent ? base->szParent : rec->pszDrvName;
+	rec->drv.szDate      = rec->pszDate   ? rec->pszDate   : base->szDate;
 	rec->drv.szFullNameA = rec->pszFullNameA;
 	rec->drv.szFullNameW = rec->pszFullNameW;
-	rec->drv.GetRomInfo  = RomDataGetRomInfo;		// <-- the whole point: per-driver ROM table
+	rec->drv.GetZipName  = NULL;
+	rec->drv.GetRomInfo  = RomDataGetRomInfo;
 	rec->drv.GetRomName  = RomDataGetRomName;
-	rec->drv.GetZipName  = NULL;					// fall back to generic zip-name logic
-	rec->drv.Flags      |= BDF_ROMDATA_DRIVER;
-	if (!(base->Flags & BDF_CLONE))
-		rec->drv.Flags  |= BDF_CLONE;				// RomData sets are treated as clones
+	rec->drv.Flags      |= BDF_ROMDATA_DRIVER | BDF_CLONE;
 
 	// Register the record, then link the driver into the engine list.
 	struct RomDataDrv** growRec = (struct RomDataDrv**)realloc(
 		pRDDrv, (nRDDrvCount + 1) * sizeof(struct RomDataDrv*));
-	if (!growRec) { rd_free_record(rec); return -1; }
+	if (!growRec) {
+		bprintf(PRINT_ERROR, _T("RomData: out of memory growing driver array\n"));
+		rd_free_record(rec);
+		return -1;
+	}
 	pRDDrv = growRec;
 
 	if (~0U == LinkExtlDrivers(&rec->drv, &nBurnDrvCount)) {
+		bprintf(PRINT_ERROR, _T("RomData: failed to link driver '%hs'\n"), pp->szZipName);
 		rd_free_record(rec);
 		return -1;
 	}
 	pRDDrv[nRDDrvCount] = rec;
 	nRDDrvCount++;
 
+	bprintf(PRINT_NORMAL, _T("RomData: loaded driver '%hs' (based on '%hs')\n"),
+			rec->pszShortName, rec->pszDrvName);
 	return (INT32)(nBurnDrvCount - 1);				// index of the just-added driver
 }
 
@@ -607,15 +616,26 @@ extern "C" INT32 RomDataLoadOne(const TCHAR* szDatPath)
 	if (!dot || (0 != _tcsicmp(dot, _T(".dat")))) return -1;
 
 	char* text = rd_load_text(szDatPath);
-	if (!text) return -1;
+	if (!text) {
+		bprintf(PRINT_ERROR, _T("RomData: failed to read/convert '%s'\n"), szDatPath);
+		return -1;
+	}
 
 	struct RomDataParsed parsed;
 	INT32 r = rd_parse_text(text, &parsed);
 	free(text);
-	if (0 != r) { rd_parsed_free(&parsed); return -1; }
+	if (0 != r) {
+		bprintf(PRINT_ERROR, _T("RomData: failed to parse '%s' (error %d)\n"), szDatPath, r);
+		rd_parsed_free(&parsed);
+		return -1;
+	}
 
 	// Idempotency: skip a romset whose ZipName is already present.
-	if (BurnDrvGetIndex(parsed.szZipName) >= 0) { rd_parsed_free(&parsed); return -1; }
+	if (BurnDrvGetIndex(parsed.szZipName) >= 0) {
+		bprintf(PRINT_IMPORTANT, _T("RomData: skipping '%hs' (driver already exists)\n"), parsed.szZipName);
+		rd_parsed_free(&parsed);
+		return -1;
+	}
 
 	INT32 idx = rd_build_and_link(&parsed);
 	rd_parsed_free(&parsed);						// frees anything not moved into the record
@@ -624,7 +644,7 @@ extern "C" INT32 RomDataLoadOne(const TCHAR* szDatPath)
 
 static void rd_scan_dir(const TCHAR* szDir, bool bScanSub, int depth)
 {
-	if (!szDir || depth > 8) return;
+	if (!szDir || depth > 4) return;
 	RD_DIR* dp = rd_opendir(szDir);
 	if (!dp) return;
 
@@ -659,15 +679,11 @@ extern "C" void RomDataFree(void)
 {
 	if (!pRDDrv || 0 == nRDDrvCount) return;
 
-	// Detach RomData drivers from the engine list before freeing them, so no
-	// dangling pointer is ever left behind in pDriverEx.  Our drivers are the
-	// tail [nIntlDrvCount, nBurnDrvCount); drop them by resetting the count.
 	nBurnDrvCount = nIntlDrvCount;
 
 	for (UINT32 i = 0; i < nRDDrvCount; i++)
 		rd_free_record(pRDDrv[i]);
-	free(pRDDrv);
-	pRDDrv = NULL;
+	free_s((void**)&pRDDrv);
 	nRDDrvCount = 0;
 }
 
@@ -680,8 +696,7 @@ extern "C" bool IsRomDataDrv(void)
 extern "C" char* RomDataDrvGetDrvName(void)
 {
 	struct RomDataDrv* rd = rd_active();
-	// The base driver's short name is the parent we cloned from.
-	return rd ? rd->pszParent : NULL;
+	return rd ? rd->pszDrvName : NULL;
 }
 
 extern "C" struct BurnRomInfo* RomDataDrvGetRomInfo(UINT32* pRomCount)
@@ -692,19 +707,8 @@ extern "C" struct BurnRomInfo* RomDataDrvGetRomInfo(UINT32* pRomCount)
 	return rd->pRomInfo;
 }
 
-extern "C" void NeoProcessExtraRom(UINT8* rom)
+extern "C" const char* RomDataDrvGetExtName(void)
 {
-	if (!IsRomDataDrv()) return;
 	struct RomDataDrv* rd = rd_active();
-	if (!rd || rd_is_empty(rd->pszExtraRom)) return;
-
-	UINT32 romLen = 0, exromLen = 0;
-	for (UINT32 i = 0; i < rd->nRomInfoCount; i++) {
-		const struct BurnRomInfo* ri = &rd->pRomInfo[i];
-		if (0 == strcmp(ri->szName ? ri->szName : "", rd->pszExtraRom)) exromLen = ri->nLen;
-		if (1 == (ri->nType & 7)) romLen += ri->nLen;	// P-ROMs
-	}
-	if (0 == exromLen || romLen <= exromLen) return;
-
-	SekMapMemory(rom + (romLen - exromLen), 0x900000, 0x900000 + (exromLen - 1), MAP_ROM);
+	return rd ? rd->pszExtName : NULL;
 }

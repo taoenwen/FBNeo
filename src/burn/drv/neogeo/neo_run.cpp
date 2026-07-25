@@ -74,6 +74,7 @@
 #include "burn_ym2610.h"
 #include "bitswap.h"
 #include "neocdlist.h"
+#include "romdata_core.h"
 
 // #undef USE_SPEEDHACKS
 static INT32 NEO_RASTER_IRQ_TWEAK = 0; // spinmast prefers offset of 3 here.
@@ -5171,4 +5172,28 @@ INT32 NeoFrame()
 	}
 
 	return 0;
+}
+
+extern "C" void NeoProcessExtraRom(UINT8* rom)
+{
+	if (!IsRomDataDrv()) return;
+
+	const char* pszExtName = RomDataDrvGetExtName();
+	if (!pszExtName || !pszExtName[0]) return;
+
+	UINT32 nRomCount = 0;
+	struct BurnRomInfo* pRI = RomDataDrvGetRomInfo(&nRomCount);
+	if (!pRI) return;
+
+	UINT32 romLen = 0, exromLen = 0;
+	for (UINT32 i = 0; i < nRomCount; i++) {
+		const struct BurnRomInfo* ri = &pRI[i];
+		if (ri->szName && 0 == strcmp(ri->szName, pszExtName))
+			exromLen = ri->nLen;
+		if (1 == (ri->nType & 7))						// Neo Geo P-ROMs
+			romLen += ri->nLen;
+	}
+	if (0 == exromLen || romLen <= exromLen) return;
+
+	SekMapMemory(rom + (romLen - exromLen), 0x900000, 0x900000 + (exromLen - 1), MAP_ROM);
 }
