@@ -2,6 +2,7 @@
 //  FBNeo  -  RomData core (platform-independent)
 // =============================================================================
 
+#pragma once
 #ifndef ROMDATA_CORE_H
 #define ROMDATA_CORE_H
 
