@@ -18,7 +18,6 @@ bool  IsRomDataDrv(void);
 char* RomDataDrvGetDrvName(void);
 struct BurnRomInfo* RomDataDrvGetRomInfo(UINT32* pRomCount);
 const char* RomDataDrvGetExtName(void);
-bool RomDataLookupMacro(const char* pszName, UINT32* pOut);
 
 #ifdef __cplusplus
 }

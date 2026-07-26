@@ -4,6 +4,11 @@
 
 #include "burnint.h"
 #include "romdata_core.h"
+#include "drv/capcom/cps.h"
+#include "drv/galaxian/gal.h"
+#include "drv/megadrive/megadrive.h"
+#include "drv/sega/sys16.h"
+#include "drv/taito/taito.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,14 +22,12 @@
 #include <dirent.h>
 #endif
 
-// TCHAR-aware dir ops (no _t-prefix macros exist for opendir/readdir/closedir,
-// so we provide our own -- same pattern as msu1_backend.cpp).
 #ifdef _UNICODE
-#define RD_DIR       _WDIR
-#define RD_dirent    _wdirent
-#define rd_opendir   _wopendir
-#define rd_readdir   _wreaddir
-#define rd_closedir  _wclosedir
+#define RD_DIR		_WDIR
+#define RD_dirent	_wdirent
+#define rd_opendir	_wopendir
+#define rd_readdir	_wreaddir
+#define rd_closedir	_wclosedir
 static void rd_dname(const struct _wdirent* de, char* out, int outSize)
 {
 	int i;
@@ -32,16 +35,19 @@ static void rd_dname(const struct _wdirent* de, char* out, int outSize)
 		out[i] = (char)de->d_name[i];
 	out[i] = 0;
 }
-#define _T_NARROW_FMT  _T("%hs")   // narrow string in wide printf (MSVC only)
+#define _T_NARROW_FMT	_T("%hs")		// narrow string in wide printf (MSVC only)
 #else
-#define RD_DIR       DIR
-#define RD_dirent    dirent
-#define rd_opendir   opendir
-#define rd_readdir   readdir
-#define rd_closedir  closedir
+#define RD_DIR		DIR
+#define RD_dirent	dirent
+#define rd_opendir	opendir
+#define rd_readdir	readdir
+#define rd_closedir	closedir
 #define rd_dname(de, out, outSize)  snprintf(out, outSize, "%s", (de)->d_name)
-#define _T_NARROW_FMT  _T("%s")
+#define _T_NARROW_FMT	_T("%s")
 #endif
+
+#define SHORT_MAX	128
+#define DATE_MAX	32
 
 // From burn.cpp (driver list plumbing established by the pDriverEx foundation).
 extern "C" UINT32 LinkExtlDrivers(struct BurnDriver* drv, UINT32* pallCount);
@@ -49,15 +55,15 @@ extern "C" struct BurnDriver* BurnGetDriver(const char* szName);
 
 //  Lightweight RomData driver record.
 struct RomDataDrv {
-	struct BurnDriver   drv;			// embedded engine driver (appended to pDriverEx)
-	struct BurnRomInfo* pRomInfo;		// the ONE ROM table (final form, owns szName)
-	UINT32              nRomInfoCount;
-	char*               pszShortName;
-	char*               pszDrvName;
-	char*               pszDate;
-	char*               pszFullNameA;
-	wchar_t*            pszFullNameW;
-	char*               pszExtName;
+	struct BurnDriver	drv;			// embedded engine driver (appended to pDriverEx)
+	struct BurnRomInfo*	pRomInfo;		// the ONE ROM table (final form, owns szName)
+	UINT32				nRomInfoCount;
+	char*				pszShortName;
+	char*				pszDrvName;
+	char*				pszDate;
+	char*				pszFullNameA;
+	wchar_t*			pszFullNameW;
+	char*				pszExtName;
 };
 
 static struct RomDataDrv** pRDDrv      = NULL;	// array of RomData records
@@ -72,7 +78,8 @@ static char* rd_strdup(const char* s)
 	return p;
 }
 
-static inline bool rd_is_empty(const char* s) { return (!s || '\0' == *s); }
+static inline bool rd_is_empty(const TCHAR* s) { return (!s || *s == _T('\0')); }
+static inline bool rd_is_emptyA(const char* s) { return (!s || *s == '\0'); }
 
 //  Encoding detection + normalisation to UTF-8/char
 enum RDEncoding {
@@ -83,22 +90,22 @@ enum RDEncoding {
 	RD_ENC_UTF16_BE,
 };
 
-static bool rd_is_valid_utf8(const unsigned char* buf, size_t len)
+static bool rd_is_valid_utf8(const UINT8* buf, size_t len)
 {
 	size_t p = 0;
 	while (p < len) {
-		unsigned char c = buf[p];
-		if (c < 0x80) { p++; continue; }			// ASCII
+		UINT8 c = buf[p];
+		if (c < 0x80) { p++; continue; }				// ASCII
 
 		int nExtra;
 		if      (c >= 0xC2 && c <= 0xDF) nExtra = 1;	// 2-byte
 		else if (c >= 0xE0 && c <= 0xEF) nExtra = 2;	// 3-byte
 		else if (c >= 0xF0 && c <= 0xF4) nExtra = 3;	// 4-byte
-		else return false;							// invalid lead byte -> not UTF-8
+		else return false;								// invalid lead byte -> not UTF-8
 
 		// Each of the nExtra continuation bytes must exist and be 10xxxxxx.
 		for (int i = 1; i <= nExtra; i++) {
-			if (p + (size_t)i >= len) return false;	// truncated sequence at EOF
+			if (p + (size_t)i >= len) return false;		// truncated sequence at EOF
 			if (0x80 != (buf[p + i] & 0xC0)) return false;
 		}
 		p += nExtra + 1;
@@ -106,14 +113,14 @@ static bool rd_is_valid_utf8(const unsigned char* buf, size_t len)
 	return true;
 }
 
-static unsigned char* rd_read_all(FILE* fp, size_t* pLen)
+static UINT8* rd_read_all(FILE* fp, size_t* pLen)
 {
 	*pLen = 0;
 	if (fseek(fp, 0, SEEK_END) != 0) return NULL;
 	long sz = ftell(fp);
 	if (sz < 0) return NULL;
 	rewind(fp);
-	unsigned char* buf = (unsigned char*)malloc((size_t)sz + 1);
+	UINT8* buf = (UINT8*)malloc((size_t)sz + 1);
 	if (!buf) return NULL;
 	size_t got = fread(buf, 1, (size_t)sz, fp);
 	buf[got] = 0;
@@ -121,13 +128,13 @@ static unsigned char* rd_read_all(FILE* fp, size_t* pLen)
 	return buf;
 }
 
-static RDEncoding rd_detect_encoding(const unsigned char* buf, size_t len)
+static RDEncoding rd_detect_encoding(const UINT8* buf, size_t len)
 {
 	// BOM first (Notepad++ determineEncodingFromBOM order).
-	if (len >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) return RD_ENC_UTF8_BOM;
-	if (len >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)                    return RD_ENC_UTF16_LE;
-	if (len >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)                    return RD_ENC_UTF16_BE;
-	if (len == 0) return RD_ENC_ANSI;
+	if (len >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)	return RD_ENC_UTF8_BOM;
+	if (len >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)					return RD_ENC_UTF16_LE;
+	if (len >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)					return RD_ENC_UTF16_BE;
+	if (len == 0)														return RD_ENC_ANSI;
 
 	// UTF-16 without BOM: ASCII text alternates with 0x00 bytes.  Sample the
 	// head and see whether even- or odd-offset zero bytes dominate.
@@ -174,7 +181,7 @@ static char* rd_load_text(const TCHAR* szPath)
 	if (!fp) return NULL;
 
 	size_t len = 0;
-	unsigned char* raw = rd_read_all(fp, &len);
+	UINT8* raw = rd_read_all(fp, &len);
 	fclose(fp);
 	if (!raw) return NULL;
 
@@ -191,12 +198,12 @@ static char* rd_load_text(const TCHAR* szPath)
 		return (char*)raw;
 	}
 	if (enc == RD_ENC_UTF8_BOM) {
-		memmove(raw, raw + 3, len - 3 + 1);			// drop BOM
+		memmove(raw, raw + 3, len - 3 + 1);					// drop BOM
 		return (char*)raw;
 	}
 
 	// UTF-16 LE/BE -> UTF-8.  A .dat only needs BMP; encode up to 3-byte UTF-8.
-	size_t start = 2;								// skip BOM
+	size_t start = 2;										// skip BOM
 	size_t units = (len - start) / 2;
 	// worst case 3 bytes per unit + NUL
 	char* out = (char*)malloc(units * 3 + 1);
@@ -204,8 +211,8 @@ static char* rd_load_text(const TCHAR* szPath)
 	size_t o = 0;
 	for (size_t i = 0; i < units; i++) {
 		unsigned int cp;
-		unsigned char b0 = raw[start + i * 2 + 0];
-		unsigned char b1 = raw[start + i * 2 + 1];
+		UINT8 b0 = raw[start + i * 2 + 0];
+		UINT8 b1 = raw[start + i * 2 + 1];
 		cp = (enc == RD_ENC_UTF16_LE) ? (unsigned int)(b0 | (b1 << 8))
 									  : (unsigned int)(b1 | (b0 << 8));
 		if (cp < 0x80) {
@@ -232,10 +239,10 @@ static char* rd_qtoken(char* s, char** ppSaved)
 	if (!p) return NULL;
 
 	p += strspn(p, RD_DELIMS);						// skip leading delimiters
-	if ('\0' == *p) { *ppSaved = NULL; return NULL; }
+	if (*p == '\0') { *ppSaved = NULL; return NULL; }
 
 	char* token = p;
-	if ('"' == *p) {								// quoted field
+	if (*p == '"') {								// quoted field
 		token = ++p;
 		char* q = strchr(p, '"');
 		if (q) { *q = '\0'; p = q + 1; }
@@ -244,7 +251,7 @@ static char* rd_qtoken(char* s, char** ppSaved)
 		p = strpbrk(p, RD_DELIMS);
 	}
 
-	if (p && '\0' != *p) { *p = '\0'; *ppSaved = p + 1; }
+	if (p && *p != '\0') { *p = '\0'; *ppSaved = p + 1; }
 	else                 { *ppSaved = NULL; }
 	return token;
 }
@@ -252,20 +259,20 @@ static char* rd_qtoken(char* s, char** ppSaved)
 // Parse a hex string to UINT32 with strict validation.
 static bool rd_hex(const char* s, UINT32* out)
 {
-	if (rd_is_empty(s) || !out) return false;
+	if (rd_is_emptyA(s) || !out) return false;
 	char* end = NULL;
 	unsigned long v = strtoul(s, &end, 16);
-	if (s == end || '\0' != *end) return false;
+	if (s == end || *end != '\0') return false;
 	*out = (UINT32)v;
 	return true;
 }
 
 //  Pure parse layer:  .dat text  ->  header fields + BurnRomInfo[]
 struct RomDataParsed {
-	char   szZipName[128];
-	char   szDrvName[128];
-	char   szDate[32];
-	char   szExtraRom[128];
+	char   szShortName[SHORT_MAX];
+	char   szDrvName[SHORT_MAX];
+	char   szDate[DATE_MAX];
+	char   szExtraRom[SHORT_MAX];
 	char   szFullName[MAX_PATH];
 	struct BurnRomInfo* pRomInfo;					// malloc'd table (owns each szName)
 	UINT32 nRomInfoCount;
@@ -314,10 +321,59 @@ static INT32 rd_copy_base_entry(struct RomDataParsed* pp)
 	return 0;
 }
 
+// ---------------------------------------------------------------------------
+//  Symbolic ROM-type lookup table  (populated from the platform headers)
+// ---------------------------------------------------------------------------
+struct RDMacroMap { const char* pszName; UINT32 nValue; };
+#define X(a) { #a, (UINT32)(a) }
+static const struct RDMacroMap RDMacroTable[] = {
+	X(BRF_PRG), X(BRF_GRA), X(BRF_SND), X(BRF_ESS), X(BRF_BIOS), X(BRF_SELECT), X(BRF_OPT), X(BRF_NODUMP),
+	X(CPS1_68K_PROGRAM_BYTESWAP), X(CPS1_68K_PROGRAM_NO_BYTESWAP), X(CPS1_Z80_PROGRAM), X(CPS1_TILES),
+	X(CPS1_OKIM6295_SAMPLES), X(CPS1_QSOUND_SAMPLES), X(CPS1_PIC),
+	X(CPS1_EXTRA_TILES_SF2EBBL_400000), X(CPS1_EXTRA_TILES_400000), X(CPS1_EXTRA_TILES_SF2KORYU_400000),
+	X(CPS1_EXTRA_TILES_SF2B_400000), X(CPS1_EXTRA_TILES_SF2MKOT_400000),
+	X(CPS2_PRG_68K), X(CPS2_PRG_68K_SIMM), X(CPS2_PRG_68K_XOR_TABLE), X(CPS2_GFX), X(CPS2_GFX_SIMM),
+	X(CPS2_GFX_SPLIT4), X(CPS2_GFX_SPLIT8), X(CPS2_GFX_19XXJ), X(CPS2_PRG_Z80), X(CPS2_QSND),
+	X(CPS2_QSND_SIMM), X(CPS2_QSND_SIMM_BYTESWAP), X(CPS2_ENCRYPTION_KEY),
+	X(GAL_ROM_Z80_PROG1), X(GAL_ROM_Z80_PROG2), X(GAL_ROM_Z80_PROG3), X(GAL_ROM_TILES_SHARED),
+	X(GAL_ROM_TILES_CHARS), X(GAL_ROM_TILES_SPRITES), X(GAL_ROM_PROM), X(GAL_ROM_S2650_PROG1),
+	X(SEGA_MD_ROM_LOAD_NORMAL), X(SEGA_MD_ROM_LOAD16_WORD_SWAP), X(SEGA_MD_ROM_LOAD16_BYTE),
+	X(SEGA_MD_ROM_LOAD16_WORD_SWAP_CONTINUE_040000_100000), X(SEGA_MD_ROM_LOAD_NORMAL_CONTINUE_020000_080000),
+	X(SEGA_MD_ROM_OFFS_000000), X(SEGA_MD_ROM_OFFS_000001), X(SEGA_MD_ROM_OFFS_020000), X(SEGA_MD_ROM_OFFS_080000),
+	X(SEGA_MD_ROM_OFFS_100000), X(SEGA_MD_ROM_OFFS_100001), X(SEGA_MD_ROM_OFFS_200000), X(SEGA_MD_ROM_OFFS_300000),
+	X(SEGA_MD_ROM_RELOAD_200000_200000), X(SEGA_MD_ROM_RELOAD_100000_300000), X(SEGA_MD_ARCADE_SUNMIXING),
+	X(SYS16_ROM_PROG_FLAT), X(SYS16_ROM_PROG), X(SYS16_ROM_TILES), X(SYS16_ROM_SPRITES), X(SYS16_ROM_Z80PROG),
+	X(SYS16_ROM_KEY), X(SYS16_ROM_7751PROG), X(SYS16_ROM_7751DATA), X(SYS16_ROM_UPD7759DATA), X(SYS16_ROM_PROG2),
+	X(SYS16_ROM_ROAD), X(SYS16_ROM_PCMDATA), X(SYS16_ROM_Z80PROG2), X(SYS16_ROM_Z80PROG3), X(SYS16_ROM_Z80PROG4),
+	X(SYS16_ROM_PCM2DATA), X(SYS16_ROM_PROM), X(SYS16_ROM_PROG3), X(SYS16_ROM_SPRITES2), X(SYS16_ROM_RF5C68DATA),
+	X(SYS16_ROM_I8751), X(SYS16_ROM_MSM6295), X(SYS16_ROM_TILES_20000),
+	X(TAITO_68KROM1), X(TAITO_68KROM1_BYTESWAP), X(TAITO_68KROM1_BYTESWAP_JUMPING), X(TAITO_68KROM1_BYTESWAP32),
+	X(TAITO_68KROM2), X(TAITO_68KROM2_BYTESWAP), X(TAITO_68KROM3), X(TAITO_68KROM3_BYTESWAP),
+	X(TAITO_Z80ROM1), X(TAITO_Z80ROM2), X(TAITO_CHARS), X(TAITO_CHARS_BYTESWAP), X(TAITO_CHARSB),
+	X(TAITO_CHARSB_BYTESWAP), X(TAITO_SPRITESA), X(TAITO_SPRITESA_BYTESWAP), X(TAITO_SPRITESA_BYTESWAP32),
+	X(TAITO_SPRITESA_TOPSPEED), X(TAITO_SPRITESA_DBLAXLEU), X(TAITO_SPRITESB), X(TAITO_SPRITESB_BYTESWAP), X(TAITO_SPRITESB_BYTESWAP32),
+	X(TAITO_ROAD), X(TAITO_SPRITEMAP), X(TAITO_YM2610A), X(TAITO_YM2610B), X(TAITO_MSM5205),
+	X(TAITO_MSM5205_BYTESWAP), X(TAITO_CHARS_PIVOT), X(TAITO_MSM6295), X(TAITO_ES5505), X(TAITO_ES5505_BYTESWAP),
+	X(TAITO_DEFAULT_EEPROM), X(TAITO_CHARS_BYTESWAP32), X(TAITO_CCHIP_BIOS), X(TAITO_CCHIP_EEPROM),
+};
+#undef X
+
+static bool romdata_lookup_macro(const char* pszName, UINT32* pOut)
+{
+	if (!pszName || !pOut) return false;
+	for (UINT32 i = 0; i < (sizeof(RDMacroTable) / sizeof(RDMacroTable[0])); i++) {
+		if (0 == strcmp(pszName, RDMacroTable[i].pszName)) {
+			*pOut = RDMacroTable[i].nValue;
+			return true;
+		}
+	}
+	return false;
+}
+
 static INT32 rd_parse_rom_entry(char* pName, char** ppSaved,
 								struct RomDataParsed* pp)
 {
-	if (rd_is_empty(pName)) return -1;
+	if (rd_is_emptyA(pName)) return -1;
 
 	struct BurnRomInfo ri;
 	memset(&ri, 0, sizeof(ri));
@@ -325,18 +381,18 @@ static INT32 rd_parse_rom_entry(char* pName, char** ppSaved,
 
 	char* tok;
 	tok = rd_qtoken(NULL, ppSaved);
-	if (!tok || !rd_hex(tok, &ri.nLen) || 0 == ri.nLen || ~0U == ri.nLen) return -1;
+	if (!tok || !rd_hex(tok, &ri.nLen) || ri.nLen == 0 || ri.nLen == ~0U) return -1;
 
 	tok = rd_qtoken(NULL, ppSaved);
-	if (!tok || !rd_hex(tok, &ri.nCrc) || ~0U == ri.nCrc) return -1;
+	if (!tok || !rd_hex(tok, &ri.nCrc) || ri.nCrc == ~0U) return -1;
 
 	while ((tok = rd_qtoken(NULL, ppSaved)) != NULL) {
 		UINT32 v;
-		if (RomDataLookupMacro(tok, &v))            ri.nType |= v;	// symbolic token
-		else if (rd_hex(tok, &v) && v != ~0U)       ri.nType |= v;	// numeric token
+		if (romdata_lookup_macro(tok, &v))		ri.nType |= v;	// symbolic token
+		else if (rd_hex(tok, &v) && v != ~0U)	ri.nType |= v;	// numeric token
 	}
 
-	if (0 == ri.nType) return -2;					// type must be explicit ("*" inherits instead)
+	if (ri.nType == 0) return -2;								// type must be explicit ("*" inherits instead)
 
 	struct BurnRomInfo* grown = (struct BurnRomInfo*)realloc(
 		pp->pRomInfo, (pp->nRomInfoCount + 1) * sizeof(struct BurnRomInfo));
@@ -374,37 +430,37 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 		if (!label) continue;
 		if ('/' == label[0] && '/' == label[1]) continue;					// comment
 
-		if (0 == strcmp("ShortName", label) || 0 == strcmp("ZipName", label) || 0 == strcmp("RomName", label)) {
+		if (_stricmp("ShortName", label) == 0 || _stricmp("ZipName", label) == 0 || _stricmp("RomName", label) == 0) {
 			if (bHaveZip) continue;
 			char* v = rd_qtoken(NULL, &saved);
-			if (rd_is_empty(v) || strlen(v) > 99) return -1;
+			if (rd_is_emptyA(v) || strlen(v) > SHORT_MAX - 1) return -1;
 			if (BurnDrvGetIndex(v) >= 0) return -1;							// clashes with a built-in
-			strncpy(pp->szZipName, v, sizeof(pp->szZipName) - 1);
+			strncpy(pp->szShortName, v, sizeof(pp->szShortName) - 1);
 			bHaveZip = true; continue;
 		}
-		if (0 == strcmp("DrvName", label) || 0 == strcmp("Parent", label)) {
+		if (_stricmp("DrvName", label) == 0 || _stricmp("Parent", label) == 0) {
 			if (bHaveDrv) continue;
 			char* v = rd_qtoken(NULL, &saved);
-			if (rd_is_empty(v) || strlen(v) > 99) return -1;
+			if (rd_is_emptyA(v) || strlen(v) > SHORT_MAX - 1) return -1;
 			nIndex = BurnDrvGetIndex(v);
 			if (-1 == nIndex) return -1;									// base driver not found
 			strncpy(pp->szDrvName, v, sizeof(pp->szDrvName) - 1);
 			bHaveDrv = true; continue;
 		}
-		if (0 == strcmp("Date", label) || 0 == strcmp("Release", label)) {
+		if (_stricmp("Date", label) == 0 || _stricmp("Release", label) == 0) {
 			if (bHaveDate) continue;
 			char* v = rd_qtoken(NULL, &saved);
-			if (!rd_is_empty(v) && strlen(v) < (int)sizeof(pp->szDate))
+			if (!rd_is_emptyA(v) && strlen(v) < DATE_MAX - 1)
 				strncpy(pp->szDate, v, sizeof(pp->szDate) - 1);
 			bHaveDate = true; continue;
 		}
-		if (0 == strcmp("ExtraRom", label)) {
+		if (_stricmp("ExtraRom", label) == 0) {
 			if (bHaveExtra) continue;
 			char* v = rd_qtoken(NULL, &saved);
-			if (!rd_is_empty(v) && strlen(v) <= 99) { strncpy(pp->szExtraRom, v, sizeof(pp->szExtraRom) - 1); }
+			if (!rd_is_emptyA(v) && strlen(v) <= SHORT_MAX - 1) { strncpy(pp->szExtraRom, v, sizeof(pp->szExtraRom) - 1); }
 			bHaveExtra = true; continue;
 		}
-		if (0 == strcmp("FullName", label) || 0 == strcmp("Game", label)) {
+		if (_stricmp("FullName", label) == 0 || _stricmp("Game", label) == 0) {
 			if (bHaveFull) continue;
 			INT32 nAdd = 0; char* v;
 			while ((v = rd_qtoken(NULL, &saved)) != NULL) {
@@ -414,13 +470,13 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 				if (w <= 0) break;
 				nAdd = (INT32)strlen(pp->szFullName);
 			}
-			if (0 == nAdd) return -1;
+			if (nAdd == 0) return -1;
 			pp->szFullName[nAdd - 1] = '\0';								// strip trailing space
 			bHaveFull = true; continue;
 		}
 
 		INT32 r;
-		if (0 == strcmp(label, "*"))
+		if (strcmp(label, "*") == 0)
 			r = rd_copy_base_entry(pp);										// 0=copied, 1=skip, <0=error
 		else
 			r = rd_parse_rom_entry(label, &saved, pp);
@@ -428,7 +484,7 @@ static INT32 rd_parse_text(char* text, struct RomDataParsed* pp)
 	}
 
 	// Required: ZipName, DrvName, FullName, at least one ROM.
-	if (!bHaveZip || !bHaveDrv || !bHaveFull || 0 == pp->nRomInfoCount) return -1;
+	if (!bHaveZip || !bHaveDrv || !bHaveFull || pp->nRomInfoCount == 0) return -1;
 	(void)nIndex;
 	return 0;
 }
@@ -502,7 +558,7 @@ static wchar_t* rd_utf8_to_wide(const char* s)
 	size_t n = strlen(s);
 	wchar_t* w = (wchar_t*)malloc((n + 2) * sizeof(wchar_t));
 	if (!w) return NULL;
-	const unsigned char* p = (const unsigned char*)s;
+	const UINT8* p = (const UINT8*)s;
 	size_t o = 0;
 	while (*p) {
 		UINT32 cp;
@@ -524,18 +580,18 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 {
 	INT32 nBaseIdx = BurnDrvGetIndex(pp->szDrvName);
 	if (nBaseIdx < 0) {
-		bprintf(PRINT_ERROR, _T("RomData: base driver '%hs' not found\n"),               pp->szDrvName);
+		bprintf(PRINT_ERROR, _T("RomData: base driver '%hs' not found\n"), pp->szDrvName);
 		return -1;
 	}
 	struct BurnDriver* base = BurnGetDriver(pp->szDrvName);
 	if (!base) {
-		bprintf(PRINT_ERROR, _T("RomData: failed to look up base driver '%hs'\n"),       pp->szDrvName);
+		bprintf(PRINT_ERROR, _T("RomData: failed to look up base driver '%hs'\n"), pp->szDrvName);
 		return -1;
 	}
 
 	struct RomDataDrv* rec = (struct RomDataDrv*)calloc(1, sizeof(struct RomDataDrv));
 	if (!rec) {
-		bprintf(PRINT_ERROR, _T("RomData: out of memory allocating record for '%hs'\n"), pp->szZipName);
+		bprintf(PRINT_ERROR, _T("RomData: out of memory allocating record for '%hs'\n"), pp->szShortName);
 		return -1;
 	}
 
@@ -549,23 +605,23 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 	pp->nRomInfoCount  = 0;
 
 	// Overridden identity strings.
-	rec->pszShortName = rd_strdup(pp->szZipName);
+	rec->pszShortName = rd_strdup(pp->szShortName);
 	rec->pszDrvName   = rd_strdup(pp->szDrvName);
-	rec->pszDate      = !rd_is_empty(pp->szDate) ? rd_strdup(pp->szDate) : NULL;
+	rec->pszDate      = !rd_is_emptyA(pp->szDate) ? rd_strdup(pp->szDate) : NULL;
 	rec->pszFullNameA = rd_strdup(pp->szFullName);
 #ifdef _UNICODE
 	rec->pszFullNameW = rd_utf8_to_wide(pp->szFullName);
 #else
 	rec->pszFullNameW = NULL;
 #endif
-	if (!rd_is_empty(pp->szExtraRom)) rec->pszExtName = rd_strdup(pp->szExtraRom);
+	if (!rd_is_emptyA(pp->szExtraRom)) rec->pszExtName = rd_strdup(pp->szExtraRom);
 
 	if (!rec->pszShortName || !rec->pszDrvName || !rec->pszFullNameA
 #ifdef _UNICODE
 		|| !rec->pszFullNameW
 #endif
 	) {
-		bprintf(PRINT_ERROR, _T("RomData: out of memory duplicating strings for '%hs'\n"), pp->szZipName);
+		bprintf(PRINT_ERROR, _T("RomData: out of memory duplicating strings for '%hs'\n"), pp->szShortName);
 		rd_free_record(rec);
 		return -1;
 	}
@@ -575,7 +631,6 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 	rec->drv.szDate      = rec->pszDate   ? rec->pszDate   : base->szDate;
 	rec->drv.szFullNameA = rec->pszFullNameA;
 	rec->drv.szFullNameW = rec->pszFullNameW;
-	rec->drv.GetZipName  = NULL;
 	rec->drv.GetRomInfo  = RomDataGetRomInfo;
 	rec->drv.GetRomName  = RomDataGetRomName;
 	rec->drv.Flags      |= BDF_ROMDATA_DRIVER | BDF_CLONE;
@@ -591,7 +646,7 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 	pRDDrv = growRec;
 
 	if (~0U == LinkExtlDrivers(&rec->drv, &nBurnDrvCount)) {
-		bprintf(PRINT_ERROR, _T("RomData: failed to link driver '%hs'\n"), pp->szZipName);
+		bprintf(PRINT_ERROR, _T("RomData: failed to link driver '%hs'\n"), pp->szShortName);
 		rd_free_record(rec);
 		return -1;
 	}
@@ -609,11 +664,11 @@ static INT32 rd_build_and_link(struct RomDataParsed* pp)
 
 extern "C" INT32 RomDataLoadOne(const TCHAR* szDatPath)
 {
-	if (!szDatPath || _T('\0') == *szDatPath) return -1;
+	if (rd_is_empty(szDatPath)) return -1;
 
 	// Only accept a .dat extension (case-insensitive).
 	const TCHAR* dot = _tcsrchr(szDatPath, _T('.'));
-	if (!dot || (0 != _tcsicmp(dot, _T(".dat")))) return -1;
+	if (!dot || (_tcsicmp(dot, _T(".dat")) != 0)) return -1;
 
 	char* text = rd_load_text(szDatPath);
 	if (!text) {
@@ -624,15 +679,15 @@ extern "C" INT32 RomDataLoadOne(const TCHAR* szDatPath)
 	struct RomDataParsed parsed;
 	INT32 r = rd_parse_text(text, &parsed);
 	free(text);
-	if (0 != r) {
+	if (r != 0) {
 		bprintf(PRINT_ERROR, _T("RomData: failed to parse '%s' (error %d)\n"), szDatPath, r);
 		rd_parsed_free(&parsed);
 		return -1;
 	}
 
-	// Idempotency: skip a romset whose ZipName is already present.
-	if (BurnDrvGetIndex(parsed.szZipName) >= 0) {
-		bprintf(PRINT_IMPORTANT, _T("RomData: skipping '%hs' (driver already exists)\n"), parsed.szZipName);
+	// Idempotency: skip a romset whose ShortName is already present.
+	if (BurnDrvGetIndex(parsed.szShortName) >= 0) {
+		bprintf(PRINT_IMPORTANT, _T("RomData: skipping '%hs' (driver already exists)\n"), parsed.szShortName);
 		rd_parsed_free(&parsed);
 		return -1;
 	}
@@ -653,7 +708,7 @@ static void rd_scan_dir(const TCHAR* szDir, bool bScanSub, int depth)
 	while ((de = rd_readdir(dp)) != NULL) {
 		char dname[256];
 		rd_dname(de, dname, sizeof(dname));
-		if (0 == strcmp(dname, ".") || 0 == strcmp(dname, "..")) continue;
+		if (strcmp(dname, ".") == 0 || strcmp(dname, "..") == 0) continue;
 
 		_sntprintf(path, MAX_PATH, _T("%s/") _T_NARROW_FMT, szDir, dname);
 
@@ -671,13 +726,13 @@ static void rd_scan_dir(const TCHAR* szDir, bool bScanSub, int depth)
 
 extern "C" void RomDataScan(const TCHAR* szDir, bool bScanSub)
 {
-	if (!szDir || _T('\0') == *szDir) return;
+	if (rd_is_empty(szDir)) return;
 	rd_scan_dir(szDir, bScanSub, 0);
 }
 
 extern "C" void RomDataFree(void)
 {
-	if (!pRDDrv || 0 == nRDDrvCount) return;
+	if (!pRDDrv || nRDDrvCount == 0) return;
 
 	nBurnDrvCount = nIntlDrvCount;
 
@@ -689,8 +744,7 @@ extern "C" void RomDataFree(void)
 
 extern "C" bool IsRomDataDrv(void)
 {
-	return (nBurnDrvActive >= nIntlDrvCount && nBurnDrvActive < nBurnDrvCount
-			&& (BurnDrvGetFlags() & BDF_ROMDATA_DRIVER));
+	return (nBurnDrvActive >= nIntlDrvCount && nBurnDrvActive < nBurnDrvCount && (BurnDrvGetFlags() & BDF_ROMDATA_DRIVER));
 }
 
 extern "C" char* RomDataDrvGetDrvName(void)
@@ -712,3 +766,15 @@ extern "C" const char* RomDataDrvGetExtName(void)
 	struct RomDataDrv* rd = rd_active();
 	return rd ? rd->pszExtName : NULL;
 }
+
+#ifndef _UNICODE
+#undef rd_dname
+#endif
+#undef SHORT_MAX
+#undef DATE_MAX
+#undef RD_DIR
+#undef RD_dirent
+#undef rd_opendir
+#undef rd_readdir
+#undef rd_closedir
+#undef _T_NARROW_FMT

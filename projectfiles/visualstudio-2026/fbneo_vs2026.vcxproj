@@ -1020,7 +1020,6 @@
     <ClCompile Include="..\..\src\burner\misc.cpp" />
     <ClCompile Include="..\..\src\burner\nvram.cpp" />
     <ClCompile Include="..\..\src\burner\romdata_core.cpp" />
-    <ClCompile Include="..\..\src\burner\romdata_type.cpp" />
     <ClCompile Include="..\..\src\burner\sshot.cpp" />
     <ClCompile Include="..\..\src\burner\state.cpp" />
     <ClCompile Include="..\..\src\burner\statec.cpp" />
