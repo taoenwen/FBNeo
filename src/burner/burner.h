@@ -232,6 +232,7 @@ void ComputeGammaLUT();
 #define DAT_SNES_ONLY			14
 #define DAT_NGP_ONLY			15
 #define DAT_CHANNELF_ONLY		16
+#define DAT_ASTROHOME_ONLY		17
 
 INT32 write_datfile(INT32 bType, FILE* fDat);
 INT32 create_datfile(TCHAR* szFilename, INT32 bType);
