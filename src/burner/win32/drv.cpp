@@ -29,6 +29,16 @@ TCHAR szAppRomPaths[DIRS_MAX][MAX_PATH] = {
 
 TCHAR szAppQuickPath[MAX_PATH] = _T("");
 
+static struct RomDataInfo RDI = { 0 };
+RomDataInfo* pRDI = &RDI;
+
+struct BurnRomInfo* pDataRomDesc = NULL;
+
+char* RomdataGetDrvName() { return NULL; }
+void RomDataInit() {}
+void RomDataSetFullName() {}
+void RomDataExit() {}
+
 static bool bSaveRAM = false;
 
 static INT32 nNeoCDZnAudSampleRateSave = 0;

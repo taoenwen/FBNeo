@@ -407,9 +407,6 @@ void  FreeNGCDGame(NGCDGAME** ppGame);
 INT32 GetNGCDGameTitle(const UINT32 nGameID, NGCDGAME** ppOutGame, bool bPrintLog = false);
 INT32 cdimgCountChdAudioTracks(TCHAR* pszFile);
 
-// romdata.cpp
-INT32 RomdataGetDrvIndex(const TCHAR* pszDrvName);
-
 // cona.cpp
 struct SubDirInfo {
 	TCHAR   BaseDir[MAX_PATH];

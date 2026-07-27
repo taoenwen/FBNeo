@@ -1063,7 +1063,6 @@
     <ClCompile Include="..\..\src\burner\win32\progress.cpp" />
     <ClCompile Include="..\..\src\burner\win32\replay.cpp" />
     <ClCompile Include="..\..\src\burner\win32\res.cpp" />
-    <ClCompile Include="..\..\src\burner\win32\romdata.cpp" />
     <ClCompile Include="..\..\src\burner\win32\roms.cpp" />
     <ClCompile Include="..\..\src\burner\win32\run.cpp" />
     <ClCompile Include="..\..\src\burner\win32\scrn.cpp" />

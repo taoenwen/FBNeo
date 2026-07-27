@@ -1096,6 +1096,22 @@ static void QuitGame()
 	}
 }
 
+static INT32 RomdataGetDrvIndex(const TCHAR* pszDrvName)
+{
+	const UINT32 nOldDrvActive = nBurnDrvActive;
+
+	for (INT32 nDrvIndex = 0; nDrvIndex < (INT32)nBurnDrvCount; nDrvIndex++) {
+		nBurnDrvActive = nDrvIndex;
+		if ((0 == _tcscmp(pszDrvName, BurnDrvGetText(DRV_NAME))) && (!(BurnDrvGetFlags() & BDF_BOARDROM))) {
+			nBurnDrvActive = nOldDrvActive;
+			return nDrvIndex;
+		}
+	}
+
+	nBurnDrvActive = nOldDrvActive;
+	return -1;
+}
+
 int BurnerLoadDriver(TCHAR *pszDriverName)
 {
 	INT32 nDrvIdx = RomdataGetDrvIndex(pszDriverName);

@@ -69,7 +69,6 @@ frontend_sources = files(
     'progress.cpp',
     'replay.cpp',
     'res.cpp',
-    'romdata.cpp',
     'roms.cpp',
     'run.cpp',
     'scrn.cpp',

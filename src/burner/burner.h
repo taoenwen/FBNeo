@@ -264,11 +264,9 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount);
 INT32 ZipLoadFile(UINT8* Dest, INT32 nLen, INT32* pnWrote, INT32 nEntry);
 INT32 __cdecl ZipLoadOneFile(char* arcName, const char* fileName, void** Dest, INT32* pnWrote);
 
-// romdata.cpp
-extern TCHAR szRomdataName[MAX_PATH];
 TCHAR* AdaptiveEncodingReads(const TCHAR* pszFileName);
 
-// ips_manager.cpp 
+// ips_manager.cpp
 void IpsPatchInit();
 void IpsPatchExit();
 

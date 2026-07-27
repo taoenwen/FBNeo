@@ -3112,9 +3112,6 @@
     <ClCompile Include="..\..\src\burner\win32\res.cpp">
       <Filter>burner\win32</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\burner\win32\romdata.cpp">
-      <Filter>burner\win32</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\burner\win32\roms.cpp">
       <Filter>burner\win32</Filter>
     </ClCompile>
