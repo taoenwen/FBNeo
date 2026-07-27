@@ -1122,11 +1122,6 @@ int BurnerLoadDriver(TCHAR *pszDriverName)
 	return 0;
 }
 
-INT32 RomDataLoadDriver(const TCHAR* /*pszSelDat*/)
-{
-	return -1;
-}
-
 static INT32 FileExists(const TCHAR* pszName)
 {
 	DWORD dwAttrib = GetFileAttributes(pszName);
@@ -1222,10 +1217,6 @@ INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect)
 	nQuickOpen = nMode;
 
 	switch (nMode) {
-		case 1:
-			QuickOpenExit();
-			return -1;
-
 		case 3:
 			if (!NgcdVerifyPath(pszSelect)) {
 				return -1;
@@ -1436,20 +1427,15 @@ static void OnCommand(HWND /*hDlg*/, int id, HWND /*hwndCtl*/, UINT codeNotify)
 			}
 		}
 
-		case MENU_LOAD_ROMDATA:
 		case MENU_LOAD_IPSPATCH:
 		case MENU_LOAD_NEOGEOCD:
 		case MENU_LOAD_ARCHIVE: {
-			nQuickOpen = id - MENU_LOAD_ROMDATA + 1;
+			nQuickOpen = id - MENU_LOAD_IPSPATCH + 2;
 
 			const TCHAR* pszFilter = _T(" (*.dat)\0*.dat\0\0");
 			INT32 nStringID = 0, nStrLen = 16;
 
 			switch (nQuickOpen) {
-				case 1:
-					nStringID = IDS_DISK_FILE_ROMDATA;
-					break;
-
 				case 2:
 					nStringID = IDS_DISK_FILE_IPSPATCH;
 					break;
@@ -1491,11 +1477,6 @@ static void OnCommand(HWND /*hDlg*/, int id, HWND /*hwndCtl*/, UINT codeNotify)
 				break;
 
 			BurnerQuickLoad(nQuickOpen, szSelect);
-			break;
-		}
-
-		case MENU_ROMDATA_MANAGER: {
-			RomDataManagerInit();
 			break;
 		}
 

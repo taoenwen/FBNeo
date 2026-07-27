@@ -950,9 +950,6 @@ static void MyEndDialog()
 	nSelDlgWidth  = rect.right - rect.left;
 	nSelDlgHeight = rect.bottom - rect.top;
 
-	if (!bSelOkay) {
-		RomDataStateRestore();
-	}
 	bSelOkay = false;
 
 	EndDialog(hSelDlg, 0);
@@ -2780,17 +2777,6 @@ static INT_PTR CALLBACK DialogProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lP
 
 				break;
 			}
-
-			case GAMESEL_MENU_ROMDATA: { // Export to RomData template
-				if (bDrvSelected) {
-					RomDataExportTemplate(hSelDlg, nDialogSelect);
-				}
-				else {
-					MessageBox(hSelDlg, FBALoadStringEx(hAppInst, IDS_ERR_NO_DRIVER_SELECTED, true), FBALoadStringEx(hAppInst, IDS_ERR_ERROR, true), MB_OK);
-				}
-
-				break;
-			}
 		}
 	}
 
@@ -3484,7 +3470,6 @@ int SelDialog(int nMVSCartsOnly, HWND hParentWND)
 
 	hParent = hParentWND;
 	nShowMVSCartsOnly = nMVSCartsOnly;
-	RomDataStateBackup();
 
 	FBADialogBox(hAppInst, MAKEINTRESOURCE(IDD_SELNEW), hParent, (DLGPROC)DialogProc);
 
