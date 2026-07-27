@@ -408,14 +408,7 @@ INT32 GetNGCDGameTitle(const UINT32 nGameID, NGCDGAME** ppOutGame, bool bPrintLo
 INT32 cdimgCountChdAudioTracks(TCHAR* pszFile);
 
 // romdata.cpp
-extern bool bRDListScanSub;
 INT32 RomdataGetDrvIndex(const TCHAR* pszDrvName);
-TCHAR* RomdataGetZipName(const TCHAR* pszFileName);
-TCHAR* RomdataGetDrvName(const TCHAR* pszFileName);
-TCHAR* RomdataGetFullName(const TCHAR* pszFileName);
-bool FindZipNameFromDats(const TCHAR* dirPath, const char* pszZipName, TCHAR* pszFindDat);
-bool RomDataSetQuickPath(const TCHAR* pszSelDat);
-INT32 RomDataCheck(const TCHAR* pszDatFile);
 
 // cona.cpp
 struct SubDirInfo {

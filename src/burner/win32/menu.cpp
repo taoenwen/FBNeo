@@ -1316,25 +1316,20 @@ void MenuUpdate()
 
 			if (_tcslen(szPrevGames[i])) {
 
-				// First we'll check the internal fbneo-database for szPrevGames[] resolution
-				bool found = false;
+				// Check the internal fbneo-database for szPrevGames[] resolution
+				bool bFound = false;
 				for (unsigned int j = 0; j < nBurnDrvCount; j++) {
 					nBurnDrvActive = j;
 					if (!_tcsicmp(szPrevGames[i], BurnDrvGetText(DRV_NAME))) {
 						_stprintf(szText, _T("%s\t%s"), BurnDrvGetText(DRV_FULLNAME), BurnDrvGetText(DRV_NAME));
-						found = true;
+						bFound = true;
 						break;
 					}
 				}
 				nBurnDrvActive = OldDrvSelect;
 
-				// If it's not found, attempt to resolve via RomData
-				if (found == false) {
-					// Find RomData directory (recursive or not depending on settings)
-					TCHAR szDatFile[MAX_PATH] = { 0 };
-					if (FindZipNameFromDats(szAppRomdataPath, TCHARToANSI(szPrevGames[i], NULL, 0), szDatFile)) {
-						_stprintf(szText, _T("%s\t%s"), RomdataGetFullName(szDatFile), szPrevGames[i]);
-					}
+				if (!bFound) {
+					_tcscpy(szText, szPrevGames[i]);
 				}
 
 				// Check for &s and change to &&
