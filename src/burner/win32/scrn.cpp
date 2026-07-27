@@ -1032,16 +1032,9 @@ static void OnDestroy(HWND)
 static void UpdatePreviousGameList()
 {
 	INT32 nRecentIdenticalTo = -1;
-	TCHAR szDatFile[MAX_PATH] = { 0 };
 
-	// check if this game is identical to any of the listed in the recent menu
 	for (INT32 x = 0; x < SHOW_PREV_GAMES; x++) {
-		if(!_tcscmp(BurnDrvGetText(DRV_NAME), szPrevGames[x])) {
-			if (NULL != pDataRomDesc) {
-				// Disables RomData games that are not in the RomData directory from being added to the list
-				if (!FindZipNameFromDats(szAppRomdataPath, TCHARToANSI(szPrevGames[x], NULL, 0), szDatFile))
-					return;
-			}
+		if (!_tcscmp(BurnDrvGetText(DRV_NAME), szPrevGames[x])) {
 			nRecentIdenticalTo = x;
 		}
 	}
@@ -1103,48 +1096,22 @@ static void QuitGame()
 	}
 }
 
-// Compact driver loading module
 int BurnerLoadDriver(TCHAR *pszDriverName)
 {
-	INT32 nDrvIdx = -1;
-	bool bCurrentRD = (NULL != pDataRomDesc), bRDMode = false, bFinder = false;
-	TCHAR szBackup[MAX_PATH] = { 0 }, szRDDatBackup[MAX_PATH] = { 0 };
-
-	if (bCurrentRD) {
-		_tcscpy(szBackup, szRomdataName);
-		RomDataExit();
-	}
-	if (bFinder = FindZipNameFromDats(szAppRomdataPath, _TtoA(pszDriverName), szRDDatBackup)) {
-		if ((nDrvIdx = RomDataCheck(szRDDatBackup)) >= 0) {
-			bRDMode = true;
-		}
-	}
-	if (!bFinder || !bRDMode) {
-		nDrvIdx = RomdataGetDrvIndex(pszDriverName);
-	}
+	INT32 nDrvIdx = RomdataGetDrvIndex(pszDriverName);
 	if (nDrvIdx < 0)
 		return -1;
 
-	memset(szRomdataName, 0, sizeof(szRomdataName));
-	if (bCurrentRD) {
-		_tcscpy(szRomdataName, szBackup);
-		RomDataInit();
-	}
-
 	QuitGame();
-
-	if (bRDMode) {
-		_tcscpy(szRomdataName, szRDDatBackup);
-	}
 
 	nDialogSelect = nOldDlgSelected = nBurnDrvActive = nDrvIdx;
 	bLoading = 1;
 	SplashDestroy(1);
 	StopReplay();
-	DrvInit(nDrvIdx, bSramLoad);	// Init the game driver
+	DrvInit(nDrvIdx, bSramLoad);
 	MenuEnableItems();
 	bAltPause = 0;
-	AudSoundPlay();					// Restart sound
+	AudSoundPlay();
 	bLoading = 0;
 	UpdatePreviousGameList();
 	if (bVidAutoSwitchFull) {
@@ -1155,45 +1122,9 @@ int BurnerLoadDriver(TCHAR *pszDriverName)
 	return 0;
 }
 
-INT32 RomDataLoadDriver(const TCHAR* pszSelDat)
+INT32 RomDataLoadDriver(const TCHAR* /*pszSelDat*/)
 {
-	bool bRDMode = (NULL != pDataRomDesc);
-	TCHAR szBackup[MAX_PATH] = { 0 };
-
-	if (bRDMode) {
-		_tcscpy(szBackup, szRomdataName);
-		RomDataExit();				// Before handling RomDataCheck, exit RDMode
-	}
-
-	INT32 nDrvIdx = -1;
-
-	if ((nDrvIdx = RomDataCheck(pszSelDat)) < 0)
-		return -1;
-	if (bRDMode) {
-		_tcscpy(szRomdataName, szBackup);
-		RomDataInit();				// Restore state
-	}
-
-	QuitGame();						// Quit the game completely
-
-	_tcscpy(szRomdataName, pszSelDat);
-
-	nDialogSelect = nOldDlgSelected = nBurnDrvActive = nDrvIdx;
-	bLoading  = 1;
-	SplashDestroy(1);
-	StopReplay();
-	DrvInit(nDrvIdx, bSramLoad);	// Init the game driver
-	MenuEnableItems();
-	bAltPause = 0;
-	AudSoundPlay();					// Restart sound
-	bLoading  = 0;
-	UpdatePreviousGameList();
-	if (bVidAutoSwitchFull) {
-		nVidFullscreen = 1;
-		POST_INITIALISE_MESSAGE;
-	}
-
-	return 0;
+	return -1;
 }
 
 static INT32 FileExists(const TCHAR* pszName)
@@ -1290,15 +1221,10 @@ INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect)
 {
 	nQuickOpen = nMode;
 
-	bool bRDMode = (NULL != pDataRomDesc);
-
 	switch (nMode) {
 		case 1:
-			if (!RomDataSetQuickPath(pszSelect)) {
-				QuickOpenExit();
-				return -1;
-			}
-			break;
+			QuickOpenExit();
+			return -1;
 
 		case 3:
 			if (!NgcdVerifyPath(pszSelect)) {
@@ -1317,20 +1243,9 @@ INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect)
 			break;
 	}
 
-	TCHAR szBackup[MAX_PATH] = { 0 };
-
-	if (bRDMode) {
-		_tcscpy(szBackup, szRomdataName);
-		RomDataExit();				// Before handling RomDataCheck, exit RDMode
-	}
-
 	INT32 nDrvIdx = -1;
 
 	switch (nMode) {
-		case 1:
-			nDrvIdx = RomDataCheck(pszSelect);
-			break;
-
 		case 2:
 			nDrvIdx = IpsGetDrvForQuickOpen(pszSelect);
 			break;
@@ -1349,25 +1264,10 @@ INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect)
 		QuickOpenExit();
 		return -1;
 	}
-	if (bRDMode) {
-		_tcscpy(szRomdataName, szBackup);
-		RomDataInit();				// Restore state
-	}
 
-/*
-	This process may occur during gameplay.
-	All of the above checks must be completed before resetting the game:
-	[1] If the check fails, the current game will continue;
-	[2] If the check passes, the game will quit completely (Enter a new game).
-*/
-
-	QuitGame();						// Quit the game completely
+	QuitGame();
 
 	switch (nMode) {
-		case 1:
-			_tcscpy(szRomdataName, pszSelect);
-			break;
-
 		case 2:
 			bDoIpsPatch = true;
 			IpsPatchInit();
@@ -1386,17 +1286,17 @@ INT32 BurnerQuickLoad(const INT32 nMode, const TCHAR* pszSelect)
 	bLoading = 1;
 	SplashDestroy(1);
 	StopReplay();
-	DrvInit(nDrvIdx, bSramLoad);	// Init the game driver
+	DrvInit(nDrvIdx, bSramLoad);
 	MenuEnableItems();
 	bAltPause = 0;
-	AudSoundPlay();					// Restart sound
-	QuickOpenExit();				// No need to save variables anymore
+	AudSoundPlay();
+	QuickOpenExit();
 	bLoading = 0;
 	if (bVidAutoSwitchFull) {
 		nVidFullscreen = 1;
 		POST_INITIALISE_MESSAGE;
 	}
-	if (3 == nMode) {
+	if (nMode == 3) {
 		memset(CDEmuImage, 0, sizeof(CDEmuImage));
 	}
 
@@ -1408,37 +1308,24 @@ int StartFromReset(TCHAR *szDriverName, bool bLoadSram)
 	if (!bDrvOkay || (szDriverName && _tcscmp(szDriverName, BurnDrvGetText(DRV_NAME)))) {
 		bSramLoad = bLoadSram;
 		BurnerLoadDriver(szDriverName);
-		bSramLoad = true;	// back to default
+		bSramLoad = true;
 		return 1;
 	}
 
-	//if(nBurnDrvActive < 1) return 0;
-
 	INT32 nOldDrvSelect = nBurnDrvActive;
-	bool bRDMode = (NULL != pDataRomDesc);
-	TCHAR szRDDatBackup[MAX_PATH] = { 0 };
-
-	if (bRDMode) {
-		_tcscpy(szRDDatBackup, szRomdataName);
-	}
 
 	DrvExit();
 	bLoading = 1;
-
-	if (bRDMode) {
-		_tcscpy(szRomdataName, szRDDatBackup);
-		nOldDrvSelect = BurnDrvGetIndex(RomdataGetDrvName());
-	}
 
 	nBurnDrvActive = nOldDrvSelect;
 	nDialogSelect = nOldDlgSelected = nOldDrvSelect;
 	SplashDestroy(1);
 	StopReplay();
 
-	DrvInit(nOldDrvSelect, bLoadSram);	// Init the game driver, load SRAM?
+	DrvInit(nOldDrvSelect, bLoadSram);
 	MenuEnableItems();
 	bAltPause = 0;
-	AudSoundPlay();				// Restart sound
+	AudSoundPlay();
 	bLoading = 0;
 	UpdatePreviousGameList();
 	if (bVidAutoSwitchFull) {

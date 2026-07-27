@@ -410,7 +410,6 @@ INT32 cdimgCountChdAudioTracks(TCHAR* pszFile);
 
 // romdata.cpp
 extern bool bRDListScanSub;
-TCHAR* _strqtoken(TCHAR* s, const TCHAR* delims);
 INT32 RomdataGetDrvIndex(const TCHAR* pszDrvName);
 TCHAR* RomdataGetZipName(const TCHAR* pszFileName);
 TCHAR* RomdataGetDrvName(const TCHAR* pszFileName);
