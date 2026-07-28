@@ -573,30 +573,38 @@ jobs:
   build_windows_msvc_arm64:
     name: Build (Windows MSVC ARM64)
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
     steps:
+      - name: Install dependencies
+        run: |
+          choco install strawberryperl -y --no-progress
+          "C:\strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Clone
         uses: actions/checkout@v4
 
-      - name: Build x64 then ARM64
-        shell: cmd
+      - name: Build x64 to generate sources
         working-directory: projectfiles/visualstudio-2026
         run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VCINSTALLDIR=%%i"
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
           msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=x64 /verbosity:minimal
-          cd ..\..\src\dep\scripts
-          cl.exe /D "_UNICODE" /D "BUILD_ARM64" build_details.cpp
-          build_details.exe > ..\..\..\projectfiles\visualstudio-2026\generated\build_details.h
-          del build_details.obj
-          del build_details.exe
-          cd ..\..\..\projectfiles\visualstudio-2026
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvarsamd64_arm64.bat"
-          msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=ARM64 /verbosity:minimal
-
-      - name: Package
+      - name: Prepare for ARM64 build (skip CustomBuild)
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          New-Item -ItemType Directory -Path "..\generated" -Force | Out-Null
+          New-Item -ItemType File -Path "..\generated\ctv.h" -Force | Out-Null
+          New-Item -ItemType File -Path "pgm_sprite.h" -Force | Out-Null
+          New-Item -ItemType File -Path "m68kmake.exe" -Force | Out-Null
+          New-Item -ItemType File -Path "build_details.h" -Force | Out-Null
+      - name: Build ARM64
         id: create_windows_msvc_arm64_archive
         working-directory: projectfiles/visualstudio-2026
         run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=ARM64 /verbosity:minimal
           $archive_file = "$env:WINDOWS_MSVC_ARM64_ARTIFACT.zip"
           echo "archive_file=$archive_file" >> $env:GITHUB_OUTPUT
           Compress-Archive -Path "ARM64\Release\fbneo64_arm64.exe","..\..\src\license.txt","..\..\fbahelpfilesrc\fbneo.chm","..\..\whatsnew.html" -DestinationPath $archive_file
@@ -622,30 +630,38 @@ jobs:
   build_windows_msvc_arm64_debug:
     name: Build (Windows MSVC ARM64 Debug)
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
     steps:
+      - name: Install dependencies
+        run: |
+          choco install strawberryperl -y --no-progress
+          "C:\strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Clone
         uses: actions/checkout@v4
 
-      - name: Build x64 Debug then ARM64 Debug
-        shell: cmd
+      - name: Build x64 to generate sources
         working-directory: projectfiles/visualstudio-2026
         run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VCINSTALLDIR=%%i"
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
           msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=x64 /verbosity:minimal
-          cd ..\..\src\dep\scripts
-          cl.exe /D "_UNICODE" /D "BUILD_ARM64" build_details.cpp
-          build_details.exe > ..\..\..\projectfiles\visualstudio-2026\generated\build_details.h
-          del build_details.obj
-          del build_details.exe
-          cd ..\..\..\projectfiles\visualstudio-2026
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvarsamd64_arm64.bat"
-          msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
-
-      - name: Package
+      - name: Prepare for ARM64 build (skip CustomBuild)
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          New-Item -ItemType Directory -Path "..\generated" -Force | Out-Null
+          New-Item -ItemType File -Path "..\generated\ctv.h" -Force | Out-Null
+          New-Item -ItemType File -Path "pgm_sprite.h" -Force | Out-Null
+          New-Item -ItemType File -Path "m68kmake.exe" -Force | Out-Null
+          New-Item -ItemType File -Path "build_details.h" -Force | Out-Null
+      - name: Build ARM64
         id: create_windows_msvc_arm64_debug_archive
         working-directory: projectfiles/visualstudio-2026
         run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
           $archive_file = "$env:WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT.zip"
           echo "archive_file=$archive_file" >> $env:GITHUB_OUTPUT
           Compress-Archive -Path "ARM64\Debug\fbneo64d_vs_arm64.exe","..\..\src\license.txt","..\..\fbahelpfilesrc\fbneo.chm","..\..\whatsnew.html" -DestinationPath $archive_file

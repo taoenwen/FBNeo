@@ -11,10 +11,8 @@ int main(int /*argc*/, char** /*argv*/)
 	printf("#define BUILD_CHAR ANSI\n");
 #endif
 
-#if !defined BUILD_X64_EXE && !defined BUILD_ARM64
+#if !defined BUILD_X64_EXE
 	printf("#define BUILD_CPU  X86\n");
-#elif defined BUILD_ARM64
-	printf("#define BUILD_CPU  ARM64\n");
 #else
 	printf("#define BUILD_CPU  X64\n");
 #endif
