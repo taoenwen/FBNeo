@@ -592,14 +592,7 @@ jobs:
         working-directory: projectfiles/visualstudio-2026
         run: |
           msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=x64 /verbosity:minimal
-      - name: Prepare for ARM64 build (skip CustomBuild)
-        working-directory: projectfiles/visualstudio-2026
-        run: |
-          New-Item -ItemType Directory -Path "..\generated" -Force | Out-Null
-          New-Item -ItemType File -Path "..\generated\ctv.h" -Force | Out-Null
-          New-Item -ItemType File -Path "pgm_sprite.h" -Force | Out-Null
-          New-Item -ItemType File -Path "m68kmake.exe" -Force | Out-Null
-          New-Item -ItemType File -Path "build_details.h" -Force | Out-Null
+
       - name: Build ARM64
         id: create_windows_msvc_arm64_archive
         working-directory: projectfiles/visualstudio-2026
@@ -649,14 +642,7 @@ jobs:
         working-directory: projectfiles/visualstudio-2026
         run: |
           msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=x64 /verbosity:minimal
-      - name: Prepare for ARM64 build (skip CustomBuild)
-        working-directory: projectfiles/visualstudio-2026
-        run: |
-          New-Item -ItemType Directory -Path "..\generated" -Force | Out-Null
-          New-Item -ItemType File -Path "..\generated\ctv.h" -Force | Out-Null
-          New-Item -ItemType File -Path "pgm_sprite.h" -Force | Out-Null
-          New-Item -ItemType File -Path "m68kmake.exe" -Force | Out-Null
-          New-Item -ItemType File -Path "build_details.h" -Force | Out-Null
+
       - name: Build ARM64
         id: create_windows_msvc_arm64_debug_archive
         working-directory: projectfiles/visualstudio-2026

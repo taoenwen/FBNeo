@@ -1729,21 +1729,15 @@ del %(Filename).exe
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <IncludePath>..\..\src\dep\mingw\include\directx9;..\..\src\dep\vc\include;..\..\src\dep\vc\include\xaudio2;$(IncludePath)</IncludePath>
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <IntDir>$(Platform)\$(Configuration)\</IntDir>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <RunCodeAnalysis>false</RunCodeAnalysis>
     <TargetName>fbneo64d_vs</TargetName>
-    <LibraryPath>$(LibraryPath)</LibraryPath>
     <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <IncludePath>..\..\src\dep\mingw\include\directx9;..\..\src\dep\vc\include;..\..\src\dep\vc\include\xaudio2;$(IncludePath)</IncludePath>
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <IntDir>$(Platform)\$(Configuration)\</IntDir>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <RunCodeAnalysis>false</RunCodeAnalysis>
     <TargetName>fbneo64d_vs_arm64</TargetName>
-    <LibraryPath>$(LibraryPath)</LibraryPath>
     <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -1756,23 +1750,17 @@ del %(Filename).exe
     <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <IncludePath>..\..\src\dep\mingw\include\directx9;..\..\src\dep\vc\include;..\..\src\dep\vc\include\xaudio2;$(IncludePath)</IncludePath>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <RunCodeAnalysis>false</RunCodeAnalysis>
     <TargetName>fbneo64</TargetName>
-    <LibraryPath>$(LibraryPath)</LibraryPath>
     <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
-    <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <IncludePath>..\..\src\dep\mingw\include\directx9;..\..\src\dep\vc\include;..\..\src\dep\vc\include\xaudio2;$(IncludePath)</IncludePath>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <RunCodeAnalysis>false</RunCodeAnalysis>
     <TargetName>fbneo64_arm64</TargetName>
-    <LibraryPath>$(LibraryPath)</LibraryPath>
     <EnableMicrosoftCodeAnalysis>false</EnableMicrosoftCodeAnalysis>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
