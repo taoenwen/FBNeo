@@ -42,6 +42,12 @@ env:
     WINDOWS_MSVC_X86_DEBUG_ARTIFACT: windows-msvc-x86-debug
     WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH: windows-msvc-x86-debug.txt
     WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x86-debug-archive
+    WINDOWS_MSVC_ARM64_ARTIFACT: windows-msvc-arm64
+    WINDOWS_MSVC_ARM64_ARTIFACT_PATH: windows-msvc-arm64.txt
+    WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT: windows-msvc-arm64-archive
+    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT: windows-msvc-arm64-debug
+    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH: windows-msvc-arm64-debug.txt
+    WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-arm64-debug-archive
     LINUX_SDL2_X86_64_ARTIFACT: linux-sdl2-x86_64
     LINUX_SDL2_X86_64_ARTIFACT_PATH: linux-sdl2-x86_64.txt
     LINUX_SDL2_X86_64_ARCHIVE_ARTIFACT: linux-sdl2-x86_64-archive
@@ -564,6 +570,106 @@ jobs:
           path: ${{ steps.create_windows_msvc_x86_debug_archive.outputs.archive_file }}
           retention-days: 1
 
+  build_windows_msvc_arm64:
+    name: Build (Windows MSVC ARM64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Install dependencies
+        run: |
+          choco install strawberryperl -y --no-progress
+          "C:\strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Build x64 to generate sources
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=x64 /verbosity:minimal
+
+      - name: Build ARM64
+        id: create_windows_msvc_arm64_archive
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=ARM64 /verbosity:minimal
+          $archive_file = "$env:WINDOWS_MSVC_ARM64_ARTIFACT.zip"
+          echo "archive_file=$archive_file" >> $env:GITHUB_OUTPUT
+          Compress-Archive -Path "ARM64\Release\fbneo64_arm64.exe","..\..\src\license.txt","..\..\fbahelpfilesrc\fbneo.chm","..\..\whatsnew.html" -DestinationPath $archive_file
+
+      - name: Create Archive Path
+        run: |
+          echo archive_path= '${{ steps.create_windows_msvc_arm64_archive.outputs.archive_file }}' > $env:WINDOWS_MSVC_ARM64_ARTIFACT_PATH
+
+      - name: Upload Archive Path
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT }}
+          path: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT_PATH }}
+          retention-days: 1
+
+      - name: Upload Archive as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT }}
+          path: ${{ steps.create_windows_msvc_arm64_archive.outputs.archive_file }}
+          retention-days: 1
+
+  build_windows_msvc_arm64_debug:
+    name: Build (Windows MSVC ARM64 Debug)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Install dependencies
+        run: |
+          choco install strawberryperl -y --no-progress
+          "C:\strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Build x64 to generate sources
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=x64 /verbosity:minimal
+
+      - name: Build ARM64
+        id: create_windows_msvc_arm64_debug_archive
+        working-directory: projectfiles/visualstudio-2026
+        run: |
+          msbuild fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
+          $archive_file = "$env:WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT.zip"
+          echo "archive_file=$archive_file" >> $env:GITHUB_OUTPUT
+          Compress-Archive -Path "ARM64\Debug\fbneo64d_vs_arm64.exe","..\..\src\license.txt","..\..\fbahelpfilesrc\fbneo.chm","..\..\whatsnew.html" -DestinationPath $archive_file
+
+      - name: Create Archive Path
+        run: |
+          echo archive_path= '${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}' > $env:WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH
+
+      - name: Upload Archive Path
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+          path: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH }}
+          retention-days: 1
+
+      - name: Upload Archive as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+          path: ${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}
+          retention-days: 1
+
   build_linux_sdl2_x86_64:
     name: Build (Linux SDL2 x86_64)
     runs-on: ubuntu-latest
@@ -727,7 +833,7 @@ jobs:
 #          retention-days: 1
 
   release:
-    needs: [ create_release_body, build_windows_mingw_x86_64, build_windows_mingw_x86_64_debug, build_windows_mingw_x86, build_windows_mingw_x86_debug, build_windows_ucrt64_x86_64, build_windows_ucrt64_x86_64_debug, build_windows_msvc_x86_64, build_windows_msvc_x86_64_debug, build_windows_msvc_x86, build_windows_msvc_x86_debug, build_linux_sdl2_x86_64, build_linux_sdl1_x86_64 ] # , build_macos_x86_64, build_macos_arm64
+    needs: [ create_release_body, build_windows_mingw_x86_64, build_windows_mingw_x86_64_debug, build_windows_mingw_x86, build_windows_mingw_x86_debug, build_windows_ucrt64_x86_64, build_windows_ucrt64_x86_64_debug, build_windows_msvc_x86_64, build_windows_msvc_x86_64_debug, build_windows_msvc_x86, build_windows_msvc_x86_debug, build_windows_msvc_arm64, build_windows_msvc_arm64_debug, build_linux_sdl2_x86_64, build_linux_sdl1_x86_64 ] # , build_macos_x86_64, build_macos_arm64
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -937,6 +1043,40 @@ jobs:
         with:
           name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT }}
 
+      # Windows MSVC ARM64
+      - name: Download Artifact (Windows MSVC ARM64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT }}
+
+      - name: Extract Archive Path (Windows MSVC ARM64) and Store in Step Outputs
+        id: store_windows_msvc_arm64
+        run: |
+          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_ARTIFACT_PATH`
+          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+
+      - name: Download Artifact with Archive (Windows MSVC ARM64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT }}
+
+      # Windows MSVC ARM64 Debug
+      - name: Download Artifact (Windows MSVC ARM64 Debug)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+
+      - name: Extract Archive Path (Windows MSVC ARM64 Debug) and Store in Step Outputs
+        id: store_windows_msvc_arm64_debug
+        run: |
+          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH`
+          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+
+      - name: Download Artifact with Archive (Windows MSVC ARM64 Debug)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+
       # Linux SDL2 x86_64
       - name: Download Artifact (Linux SDL2 x86_64)
         continue-on-error: true
@@ -1037,4 +1177,6 @@ jobs:
             ${{ steps.store_windows_msvc_x86_64.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86_64_debug.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86.outputs.archive_path }} \
-            ${{ steps.store_windows_msvc_x86_debug.outputs.archive_path }}
+            ${{ steps.store_windows_msvc_x86_debug.outputs.archive_path }} \
+            ${{ steps.store_windows_msvc_arm64.outputs.archive_path }} \
+            ${{ steps.store_windows_msvc_arm64_debug.outputs.archive_path }}
