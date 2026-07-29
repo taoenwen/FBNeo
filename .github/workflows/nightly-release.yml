@@ -36,6 +36,12 @@ env:
     WINDOWS_MSVC_X86_64_DEBUG_ARTIFACT: windows-msvc-x86_64-debug
     WINDOWS_MSVC_X86_64_DEBUG_ARTIFACT_PATH: windows-msvc-x86_64-debug.txt
     WINDOWS_MSVC_X86_64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x86_64-debug-archive
+    WINDOWS_MSVC_ARM64_ARTIFACT: windows-msvc-arm64
+    WINDOWS_MSVC_ARM64_ARTIFACT_PATH: windows-msvc-arm64.txt
+    WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT: windows-msvc-arm64-archive
+    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT: windows-msvc-arm64-debug
+    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH: windows-msvc-arm64-debug.txt
+    WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-arm64-debug-archive
     WINDOWS_MSVC_X86_ARTIFACT: windows-msvc-x86
     WINDOWS_MSVC_X86_ARTIFACT_PATH: windows-msvc-x86.txt
     WINDOWS_MSVC_X86_ARCHIVE_ARTIFACT: windows-msvc-x86-archive
@@ -77,7 +83,7 @@ jobs:
           echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
           echo "### Notes" > ${archive_file}
           echo "• The macos and linux standalone ports are not actively maintained, and might be missing important features, using our libretro port or running windows builds through wine/crossover is considered a safer choice for those platforms" >> ${archive_file}
-          echo "• The macos builds might first require running \`xattr -dr com.apple.quarantine "FinalBurn Neo.app"\` from a terminal to avoid a \"FinalBurn Neo is damaged\" error" >> ${archive_file}
+          echo "• The macos builds might first require running `xattr -dr com.apple.quarantine "FinalBurn Neo.app"` from a terminal to avoid a \"FinalBurn Neo is damaged\" error" >> ${archive_file}
           echo "" >> ${archive_file}
           echo "### Commits since previous nightly" >> ${archive_file}
           awk '{print "• " $0}' commits.txt >> ${archive_file}
@@ -462,6 +468,118 @@ jobs:
           path: ${{ steps.create_windows_msvc_x86_64_debug_archive.outputs.archive_file }}
           retention-days: 1
 
+  build_windows_msvc_arm64:
+    name: Build (Windows MSVC ARM64)
+    runs-on: windows-11-vs2026-arm
+    continue-on-error: true
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Build
+        id: create_windows_msvc_arm64_exe
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath`) do set "VCINSTALLDIR=%%i"
+          if not defined VCINSTALLDIR exit /b 1
+          if not exist "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat" exit /b 1
+          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
+          msbuild projectfiles\visualstudio-2026\fbneo_vs2026.sln /m /property:Configuration=Release /property:Platform=ARM64 /verbosity:minimal
+          set "PROJECT=projectfiles\visualstudio-2026"
+          for %%F in (ctv_make.exe pgm_sprite_create.exe m68kmake.exe build_details_arm64.exe) do dumpbin /headers "%PROJECT%\hosttools\x64\Release\%%F" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" /C:"machine (x64)" >nul || exit /b 1
+          if not exist "%PROJECT%\ARM64\Release\fbneoarm64.exe" exit /b 1
+          dumpbin /headers "%PROJECT%\ARM64\Release\fbneoarm64.exe" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" >nul || exit /b 1
+          findstr /C:"#define BUILD_CPU  ARM64" "%PROJECT%\generated\build_details.h" >nul || exit /b 1
+          dir /s /b "%PROJECT%\ARM64\Release\obj\*mips3_x64*.obj" >nul 2>&1 && exit /b 1 || ver >nul
+          dir /s /b "%PROJECT%\ARM64\Release\obj\*.asm.obj" >nul 2>&1 && exit /b 1 || ver >nul
+
+      - name: Package
+        id: create_windows_msvc_arm64_archive
+        shell: pwsh
+        run: |
+          $archive = '${{ env.WINDOWS_MSVC_ARM64_ARTIFACT }}.zip'
+          Compress-Archive -DestinationPath $archive -Force -Path `
+            projectfiles/visualstudio-2026/ARM64/Release/fbneoarm64.exe, `
+            src/license.txt, `
+            fbahelpfilesrc/fbneo.chm, `
+            whatsnew.html
+          "archive_file=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Create Archive Path
+        shell: bash
+        run: |
+          echo archive_path= '${{ steps.create_windows_msvc_arm64_archive.outputs.archive_file }}' > $WINDOWS_MSVC_ARM64_ARTIFACT_PATH
+
+      - name: Upload Archive Path
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT }}
+          path: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT_PATH }}
+          retention-days: 1
+
+      - name: Upload Archive as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT }}
+          path: ${{ steps.create_windows_msvc_arm64_archive.outputs.archive_file }}
+          retention-days: 1
+
+  build_windows_msvc_arm64_debug:
+    name: Build (Windows MSVC ARM64 Debug)
+    runs-on: windows-11-vs2026-arm
+    continue-on-error: true
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Build
+        id: create_windows_msvc_arm64_debug_exe
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath`) do set "VCINSTALLDIR=%%i"
+          if not defined VCINSTALLDIR exit /b 1
+          if not exist "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat" exit /b 1
+          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
+          msbuild projectfiles\visualstudio-2026\fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
+          set "PROJECT=projectfiles\visualstudio-2026"
+          for %%F in (ctv_make.exe pgm_sprite_create.exe m68kmake.exe build_details_arm64.exe) do dumpbin /headers "%PROJECT%\hosttools\x64\Release\%%F" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" /C:"machine (x64)" >nul || exit /b 1
+          if not exist "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" exit /b 1
+          dumpbin /headers "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" >nul || exit /b 1
+          findstr /C:"#define BUILD_CPU  ARM64" "%PROJECT%\generated\build_details.h" >nul || exit /b 1
+          dir /s /b "%PROJECT%\ARM64\Debug\obj\*mips3_x64*.obj" >nul 2>&1 && exit /b 1 || ver >nul
+          dir /s /b "%PROJECT%\ARM64\Debug\obj\*.asm.obj" >nul 2>&1 && exit /b 1 || ver >nul
+
+      - name: Package
+        id: create_windows_msvc_arm64_debug_archive
+        shell: pwsh
+        run: |
+          $archive = '${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}.zip'
+          Compress-Archive -DestinationPath $archive -Force -Path `
+            projectfiles/visualstudio-2026/ARM64/Debug/fbneoarm64d.exe, `
+            src/license.txt, `
+            fbahelpfilesrc/fbneo.chm, `
+            whatsnew.html
+          "archive_file=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Create Archive Path
+        shell: bash
+        run: |
+          echo archive_path= '${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH
+
+      - name: Upload Archive Path
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+          path: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH }}
+          retention-days: 1
+
+      - name: Upload Archive as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+          path: ${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}
+          retention-days: 1
+
   build_windows_msvc_x86:
     name: Build (Windows MSVC x86)
     runs-on: windows-latest
@@ -727,7 +845,7 @@ jobs:
 #          retention-days: 1
 
   release:
-    needs: [ create_release_body, build_windows_mingw_x86_64, build_windows_mingw_x86_64_debug, build_windows_mingw_x86, build_windows_mingw_x86_debug, build_windows_ucrt64_x86_64, build_windows_ucrt64_x86_64_debug, build_windows_msvc_x86_64, build_windows_msvc_x86_64_debug, build_windows_msvc_x86, build_windows_msvc_x86_debug, build_linux_sdl2_x86_64, build_linux_sdl1_x86_64 ] # , build_macos_x86_64, build_macos_arm64
+    needs: [ create_release_body, build_windows_mingw_x86_64, build_windows_mingw_x86_64_debug, build_windows_mingw_x86, build_windows_mingw_x86_debug, build_windows_ucrt64_x86_64, build_windows_ucrt64_x86_64_debug, build_windows_msvc_x86_64, build_windows_msvc_x86_64_debug, build_windows_msvc_arm64, build_windows_msvc_arm64_debug, build_windows_msvc_x86, build_windows_msvc_x86_debug, build_linux_sdl2_x86_64, build_linux_sdl1_x86_64 ] # , build_macos_x86_64, build_macos_arm64
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -897,6 +1015,41 @@ jobs:
         with:
           name: ${{ env.WINDOWS_MSVC_X86_64_DEBUG_ARCHIVE_ARTIFACT }}
 
+
+      # Windows MSVC ARM64
+      - name: Download Artifact (Windows MSVC ARM64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARTIFACT }}
+
+      - name: Extract Archive Path (Windows MSVC ARM64) and Store in Step Outputs
+        id: store_windows_msvc_arm64
+        run: |
+          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_ARTIFACT_PATH`
+          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+
+      - name: Download Artifact with Archive (Windows MSVC ARM64)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT }}
+
+      # Windows MSVC ARM64 Debug
+      - name: Download Artifact (Windows MSVC ARM64 Debug)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+
+      - name: Extract Archive Path (Windows MSVC ARM64 Debug) and Store in Step Outputs
+        id: store_windows_msvc_arm64_debug
+        run: |
+          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH`
+          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+
+      - name: Download Artifact with Archive (Windows MSVC ARM64 Debug)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+
       # Windows MSVC x86
       - name: Download Artifact (Windows MSVC x86)
         continue-on-error: true
@@ -1036,5 +1189,7 @@ jobs:
             ${{ steps.store_windows_ucrt64_x86_64_debug.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86_64.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86_64_debug.outputs.archive_path }} \
+            ${{ steps.store_windows_msvc_arm64.outputs.archive_path }} \
+            ${{ steps.store_windows_msvc_arm64_debug.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x86_debug.outputs.archive_path }}
