@@ -82,11 +82,14 @@ jobs:
           archive_file="${{ env.RELEASE_BODY_ARTIFACT }}.md"
           echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
           echo "### Notes" > ${archive_file}
-          printf "• %-32s — Windows 7+\n" "Windows MinGW x86/x64" >> ${archive_file}
-          printf "• %-32s — Windows 10+\n" "Windows UCRT64 x64" >> ${archive_file}
-          printf "• %-32s — Windows 10+\n" "Windows MSVC x86/x64" >> ${archive_file}
-          printf "• %-32s — Windows 11 ARM64\n" "Windows MSVC ARM64" >> ${archive_file}
-          printf "• %-32s — Linux 64-bit\n" "Linux SDL1/SDL2 x64" >> ${archive_file}
+          echo "| Build Target              | System Requirements |" >> ${archive_file}
+          echo "| ------------------------- | -------------------- |" >> ${archive_file}
+          echo "| Windows MinGW x86/x64     | Windows 7+           |" >> ${archive_file}
+          echo "| Windows UCRT64 x64        | Windows 10+          |" >> ${archive_file}
+          echo "| Windows MSVC x86/x64      | Windows 10+          |" >> ${archive_file}
+          echo "| Windows MSVC ARM64        | Windows 11 ARM64     |" >> ${archive_file}
+          echo "| Linux SDL1/SDL2 x64       | Linux 64-bit         |" >> ${archive_file}
+          echo "" >> ${archive_file}
           echo "• Debug builds: with debug symbols, unoptimized, not suitable for gaming" >> ${archive_file}
           echo "" >> ${archive_file}
           echo "### Commits since previous nightly" >> ${archive_file}
