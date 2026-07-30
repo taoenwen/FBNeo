@@ -245,6 +245,7 @@
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_redclash.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_senjyo.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_shangkid.cpp" />
+    <ClCompile Include="..\..\src\burn\drv\pre90s\d_spbactn.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_spdodgeb.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_splndrbt.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_stuntair.cpp" />
@@ -1103,6 +1104,7 @@ del %(Filename).exe</Command>
     <ClCompile Include="..\..\src\burn\drv\taito\taitof3_video.cpp" />
     <ClCompile Include="..\..\src\burn\drv\taito\taito_ic.cpp" />
     <ClCompile Include="..\..\src\burn\devices\taito_m68705.cpp" />
+    <ClCompile Include="..\..\src\burn\devices\cxd1095.cpp" />
     <ClCompile Include="..\..\src\burn\drv\taito\tc0100scn.cpp" />
     <ClCompile Include="..\..\src\burn\drv\taito\tc0110pcr.cpp" />
     <ClCompile Include="..\..\src\burn\drv\taito\tc0140syt.cpp" />

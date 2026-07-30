@@ -120,6 +120,7 @@
     <ClCompile Include="..\..\src\burn\devices\vdc.cpp" />
     <ClCompile Include="..\..\src\burn\devices\watchdog.cpp" />
     <ClCompile Include="..\..\src\burn\devices\x2212.cpp" />
+    <ClCompile Include="..\..\src\burn\devices\cxd1095.cpp" />
     <ClCompile Include="..\..\src\burn\drv\d_parent.cpp" />
     <ClCompile Include="..\..\src\burn\drv\atari\d_akkaarrh.cpp" />
     <ClCompile Include="..\..\src\burn\drv\atari\d_arcadecl.cpp" />
@@ -576,6 +577,7 @@
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_solomon.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_sonson.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_spacefb.cpp" />
+    <ClCompile Include="..\..\src\burn\drv\pre90s\d_spbactn.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_spdodgeb.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_speedbal.cpp" />
     <ClCompile Include="..\..\src\burn\drv\pre90s\d_splndrbt.cpp" />
