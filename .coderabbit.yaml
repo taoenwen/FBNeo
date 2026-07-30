@@ -1,0 +1,43 @@
+language: "zh-CN"
+early_access: false
+enable_free_tier: true
+
+review:
+  enable_auto_review: true
+  auto_review_threshold: 0
+  request_summary_update: true
+
+  auto_fix:
+    enable: true
+    create_pr: true
+
+exclude_patterns:
+  - "assets/**"
+  - "roms/**"
+  - "*.md"
+  - "*.txt"
+  - "*.png"
+  - "*.jpg"
+  - "docs/**"
+  - ".github/**/*.yml"
+
+focus:
+  - memory-leaks
+  - undefined-behavior
+  - race-conditions
+  - buffer-overflow
+  - performance
+  - code-readability
+  - error-handling
+  - resource-leaks
+
+severity_threshold: medium
+
+chat:
+  enable_chat: true
+  suggest_code_fixes: true
+
+branch_rules:
+  - pattern: main
+    review:
+      enable_auto_review: true
