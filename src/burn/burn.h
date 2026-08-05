@@ -34,6 +34,7 @@
  #define BUILD_CPS3
  #define BUILD_DATAEAST
  #define BUILD_GALAXIAN
+ #define BUILD_GBA
  #define BUILD_IREM
  #define BUILD_KONAMI
  #define BUILD_MEGADRIVE
@@ -416,7 +417,7 @@ INT32 BurnUpdateProgress(double dProgressStep, const TCHAR* pszText, bool bAbs);
 
 void BurnLocalisationSetName(char *szName, TCHAR *szLongName);
 
-void BurnGetLocalTime(tm *nTime);                   // Retrieve local-time of machine w/tweaks for netgame and input recordings
+void BurnGetLocalTime(tm *nTime);                   // Standard struct tm local time, deterministic for netgame and input recordings
 UINT16 BurnRandom();                                // State-able Random Number Generator (0-32767)
 void BurnRandomScan(INT32 nAction);                 // Must be called in driver's DrvScan() if BurnRandom() is used
 void BurnRandomInit();                              // Called automatically in BurnDrvInit() / Internal use only
@@ -605,6 +606,7 @@ int BurnComputeSHA1(const UINT8 *buffer, int buffer_size, char *hash_str);
 #define HARDWARE_PREFIX_SNES                            (0x22000000)
 #define HARDWARE_PREFIX_IGS_PGM2						(0x23000000)
 #define HARDWARE_PREFIX_ASTROHOME                       (0x24000000)
+#define HARDWARE_PREFIX_GBA                             (0x25000000)
 
 #define HARDWARE_SNK_NGP								(HARDWARE_PREFIX_NGP | 0x00000000)
 #define HARDWARE_SNK_NGPC								(HARDWARE_PREFIX_NGP | 0x00000001) // must not be 0x10000
@@ -853,6 +855,8 @@ int BurnComputeSHA1(const UINT8 *buffer, int buffer_size, char *hash_str);
 #define HARDWARE_CHANNELF                               (HARDWARE_PREFIX_CHANNELF)
 
 #define HARDWARE_ASTROHOME                              (HARDWARE_PREFIX_ASTROHOME)
+
+#define HARDWARE_GBA                                    (HARDWARE_PREFIX_GBA)
 
 // flags for the genre member
 #define GBF_HORSHOOT									(1 << 0)
