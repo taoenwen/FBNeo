@@ -341,25 +341,6 @@ struct BurnDriver BurnDrvgba_gba = {
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
 
-#if 0
-static struct BurnRomInfo gba_cartRomDesc[] = {
-	{ "", 0, 0, 0 },
-};
-
-STDROMPICKEXT(gba_cart, gba_cart, gba_gba)
-STD_ROM_FN(gba_cart)
-
-struct BurnDriver BurnDrvGbaCart = {
-	"gba_cart", NULL, "gba_gba", NULL, "2001",
-	"Game Boy Advance Cartridge (RomData base)\0", "Load cartridges through support romdata", "Nintendo", "Game Boy Advance",
-	NULL, NULL, NULL, NULL,
-	BDF_GAME_NOT_WORKING, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_MISC, 0,
-	GbaGetZipName, gba_cartRomInfo, gba_cartRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
-	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
-	GBA_WIDTH, GBA_HEIGHT, 3, 2
-};
-#endif // 0
-
 
 // =========================================================================================
 //  Please use short names from the MAME softwarelist/gba set wherever possible.
