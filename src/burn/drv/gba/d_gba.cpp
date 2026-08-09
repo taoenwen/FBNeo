@@ -350,10 +350,26 @@ struct BurnDriver BurnDrvgba_gba = {
 // =========================================================================================
 
 
+// Double Dragon Advance (USA)
+
+static struct BurnRomInfo gba_ddragonRomDesc[] = {
+	{ "Double Dragon Advance (U)(2003)(Atlus).gba",\t0x0400000,\t0x764fafb5,\tBRF_ESS | BRF_PRG },
+};
+
+STDROMPICKEXT(gba_ddragon, gba_ddragon, gba_gba)
+STD_ROM_FN(gba_ddragon)
+
+struct BurnDriver BurnDrvgba_ddragon = {
+	"gba_ddragon", NULL, "gba_gba", NULL, "2003",
+	"Double Dragon Advance (USA)\0", NULL, "Atlus", "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING, 2, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_SCRFIGHT, 0,
+	GbaGetZipName, gba_ddragonRomInfo, gba_ddragonRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
+
 // Famicom Mini Vol.22: Nazo no Murasame Jou (Japan)
 
 static struct BurnRomInfo gba_f_murasaRomDesc[] = {
-	{ "Famicom Mini Vol.22 - Nazo no Murasame Jou (J)(2004)(Nintendo).gba",	0x0400000,	0x8233349C,	BRF_ESS | BRF_PRG },
+	{ "Famicom Mini Vol.22 - Nazo no Murasame Jou (J)(2004)(Nintendo).gba",\t0x0400000,\t0x8233349C,\tBRF_ESS | BRF_PRG },
 };
 
 STDROMPICKEXT(gba_f_murasa, gba_f_murasa, gba_gba)
@@ -362,17 +378,15 @@ STD_ROM_FN(gba_f_murasa)
 struct BurnDriver BurnDrvgba_f_murasa = {
 	"gba_f_murasa", NULL, "gba_gba", NULL, "2004",
 	"Famicom Mini Vol.22: Nazo no Murasame Jou (Japan)\0", NULL, "Nintendo", "Game Boy Advance",
-	L"Famicom Mini Vol.22: Nazo no Murasame Jou (Japan)\0\u30d5\u30a1\u30df\u30b3\u30f3\u30df\u30cb Vol.22 \u8b0e\u306e\u6751\u96e8\u57ce\0", NULL, NULL, NULL,
+	L"Famicom Mini Vol.22: Nazo no Murasame Jou (Japan)\0\\u30d5\\u30a1\\u30df\\u30b3\\u30f3\\u30df\\u30cb Vol.22 \\u8b0e\\u306e\\u6751\\u96e8\\u57ce\0", NULL, NULL, NULL,
 	BDF_GAME_WORKING, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_ACTION, 0,
 	GbaGetZipName, gba_f_murasaRomInfo, gba_f_murasaRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
-	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
-	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
 
 // Classic NES Series: Castlevania (USA)
 
 static struct BurnRomInfo gba_n_cvaniauRomDesc[] = {
-	{ "Classic NES Series - Castlevania (U)(2004)(Nintendo).gba",	0x0100000,	0x23e4082c,	BRF_ESS | BRF_PRG },
+	{ "Classic NES Series - Castlevania (U)(2004)(Nintendo).gba",\t0x0100000,\t0x23e4082c,\tBRF_ESS | BRF_PRG },
 };
 
 STDROMPICKEXT(gba_n_cvaniau, gba_n_cvaniau, gba_gba)
@@ -391,7 +405,7 @@ struct BurnDriver BurnDrvgba_n_cvaniau = {
 // Famicom Mini Vol.29: Akumajou Dracula (Japan)
 
 static struct BurnRomInfo gba_f_akumajRomDesc[] = {
-	{ "Famicom Mini Vol.29 - Akumajou Dracula (J)(2004)(Nintendo).gba",	0x0100000,	0x11419d8b,	BRF_ESS | BRF_PRG },
+	{ "Famicom Mini Vol.29 - Akumajou Dracula (J)(2004)(Nintendo).gba",\t0x0100000,\t0x11419d8b,\tBRF_ESS | BRF_PRG },
 };
 
 STDROMPICKEXT(gba_f_akumaj, gba_f_akumaj, gba_gba)
@@ -400,9 +414,26 @@ STD_ROM_FN(gba_f_akumaj)
 struct BurnDriver BurnDrvgba_f_akumaj = {
 	"gba_f_akumaj", "gba_n_cvaniau", "gba_gba", NULL, "2004",
 	"Famicom Mini Vol.29: Akumajou Dracula (Japan)\0", NULL, "Nintendo", "Game Boy Advance",
-	L"Famicom Mini Vol.29: Akumajou Dracula (Japan)\0\u30d5\u30a1\u30df\u30b3\u30f3\u30df\u30cb Vol.29 \u60aa\u9b54\u57ce\u30c9\u30e9\u30ad\u30e5\u30e9\0", NULL, NULL, NULL,
+	L"Famicom Mini Vol.29: Akumajou Dracula (Japan)\0\\u30d5\\u30a1\\u30df\\u30b3\\u30f3\\u30df\\u30cb Vol.29 \\u60aa\\u9b54\\u57ce\\u30c9\\u30e9\\u30ad\\u30e5\\u30e9\0", NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_SCRFIGHT | GBF_PLATFORM, 0,
 	GbaGetZipName, gba_f_akumajRomInfo, gba_f_akumajRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
+};
+
+// Double Dragon Advance (Japan)
+
+static struct BurnRomInfo gba_ddragonjRomDesc[] = {
+	{ "Double Dragon Advance (J)(2004)(Atlus).gba",\t0x0400000,\t0xa3330e8f,\tBRF_ESS | BRF_PRG },
+};
+
+STDROMPICKEXT(gba_ddragonj, gba_ddragonj, gba_gba)
+STD_ROM_FN(gba_ddragonj)
+
+struct BurnDriver BurnDrvgba_ddragonj = {
+	"gba_ddragonj", "gba_ddragon", "gba_gba", NULL, "2004",
+	"Double Dragon Advance (Japan)\0", NULL, "Atlus", "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_CLONE, 2, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_SCRFIGHT, 0,
+	GbaGetZipName, gba_ddragonjRomInfo, gba_ddragonjRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
@@ -463,6 +494,25 @@ struct BurnDriver BurnDrvgba_firembssx = {
 	L"Fire Emblem: Sheng Xie De Yi Zhi (Hack, v1.4)\0\u706b\u7130\u4e4b\u7eb9\u7ae0: \u5723\u90aa\u7684\u610f\u5fd7\0", NULL, NULL, NULL,
 	BDF_GAME_WORKING | BDF_CLONE | BDF_HACK, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_RPG | GBF_STRATEGY, 0,
 	GbaGetZipName, gba_firembssxRomInfo, gba_firembssxRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
+	GBA_WIDTH, GBA_HEIGHT, 3, 2
+};
+
+// Super Ghouls'n Ghosts (Europe, USA)
+
+static struct BurnRomInfo gba_sgngRomDesc[] = {
+	{ "Super Ghouls'n Ghosts (E, U)(2002)(Capcom).gba",	0x0400000,	0x1ef2acf3,	BRF_ESS | BRF_PRG },
+};
+
+STDROMPICKEXT(gba_sgng, gba_sgng, gba_gba)
+STD_ROM_FN(gba_sgng)
+
+struct BurnDriver BurnDrvgba_sgng = {
+	"gba_sgng", NULL, "gba_gba", NULL, "2002",
+	"Super Ghouls'n Ghosts (Europe, USA)\0", NULL, "Capcom", "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_PLATFORM | GBF_RUNGUN, 0,
+	GbaGetZipName, gba_sgngRomInfo, gba_sgngRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
