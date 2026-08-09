@@ -946,6 +946,11 @@ static FORCE_INLINE bool gba_gpio_active(const gba_t* gba)
 static FORCE_INLINE UINT16 gba_rom_read16(const gba_t* gba, UINT32 address)
 {
 	UINT32 offset = (address & 0x1fffffe);
+	if (offset >= gba->cart.rom_size) {
+		UINT32 mask = gba->cart.rom_size - 1;
+		if ((gba->cart.rom_size & mask) == 0)
+			offset &= mask & ~1;
+	}
 	return gba->mem.cart_rom[offset] | (gba->mem.cart_rom[offset + 1] << 8);
 }
 
@@ -1630,9 +1635,13 @@ static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_
 		case 0xD: {
 			INT32 maddr = addr & 0x1fffffc;
 			if (SB_UNLIKELY(maddr >= gba->cart.rom_size)) {
+				UINT32 mask = gba->cart.rom_size - 1;
+				if ((gba->cart.rom_size & mask) == 0)
+					maddr &= mask & ~3;
+			}
+			if (SB_UNLIKELY(maddr >= gba->cart.rom_size)) {
 				gba->mem.openbus_word = ((maddr / 2) & 0xffff) | (((maddr / 2 + 1) & 0xffff) << 16);
-				// Return ready when done writting EEPROM (required by Minish Cap)
-				if (gba->cart.backup_type == GBA_BACKUP_EEPROM)
+				if (gba->cart.backup_type == GBA_BACKUP_EEPROM && (addr & 0x1ffffff) >= 0x01ffff00)
 					gba->mem.openbus_word = 1;
 			} else {
 				gba->mem.openbus_word = *(UINT32*)(gba->mem.cart_rom + maddr);
