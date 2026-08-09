@@ -677,7 +677,7 @@ typedef struct {
 	INT32  flash_state;
 	INT32  flash_bank;
 	UINT32 features;
-	gba_gpio_t gpio;
+	gba_gpio_t  gpio;
 	gba_vfame_t vfame;
 } gba_cartridge_t;
 
@@ -955,39 +955,50 @@ static FORCE_INLINE bool gba_gpio_active(const gba_t* gba)
 // VFame (FC Mini) cartridge pattern value for out-of-bounds ROM reads
 static FORCE_INLINE UINT32 gba_vfame_pattern_right_shift2(UINT32 addr)
 {
-	UINT32 value = addr & 0xFFFF;
+	UINT32 value = addr & 0xffff;
 	value >>= 2;
-	value += (addr & 3) == 2 ? 0x8000 : 0;
+	value += (addr & 3) == 2  ? 0x8000 : 0;
 	value += (addr & 0x10000) ? 0x4000 : 0;
 	return value;
 }
 
 static FORCE_INLINE UINT16 gba_vfame_get_pattern(UINT32 addr)
 {
-	addr &= 0x1FFFFF;
+	addr &= 0x1fffff;
 	UINT32 value = 0;
-	switch (addr & 0x1F0000) {
-	case 0x000000: case 0x010000: value = (addr >> 1) & 0xFFFF; break;
-	case 0x020000: value = addr & 0xFFFF; break;
-	case 0x030000: value = (addr & 0xFFFF) + 1; break;
-	case 0x040000: value = 0xFFFF - (addr & 0xFFFF); break;
-	case 0x050000: value = (0xFFFF - (addr & 0xFFFF)) - 1; break;
-	case 0x060000: value = (addr & 0xFFFF) ^ 0xAAAA; break;
-	case 0x070000: value = ((addr & 0xFFFF) ^ 0xAAAA) + 1; break;
-	case 0x080000: value = (addr & 0xFFFF) ^ 0x5555; break;
-	case 0x090000: value = ((addr & 0xFFFF) ^ 0x5555) - 1; break;
-	case 0x0A0000: case 0x0B0000: value = gba_vfame_pattern_right_shift2(addr); break;
-	case 0x0C0000: case 0x0D0000: value = 0xFFFF - gba_vfame_pattern_right_shift2(addr); break;
-	case 0x0E0000: case 0x0F0000: value = gba_vfame_pattern_right_shift2(addr) ^ 0xAAAA; break;
-	case 0x100000: case 0x110000: value = gba_vfame_pattern_right_shift2(addr) ^ 0x5555; break;
-	case 0x120000: value = 0xFFFF - ((addr & 0xFFFF) >> 1); break;
-	case 0x130000: value = 0xFFFF - ((addr & 0xFFFF) >> 1) - 0x8000; break;
-	case 0x140000: case 0x150000: value = ((addr >> 1) & 0xFFFF) ^ 0xAAAA; break;
-	case 0x160000: case 0x170000: value = ((addr >> 1) & 0xFFFF) ^ 0x5555; break;
-	case 0x180000: case 0x190000: value = ((addr >> 1) & 0xFFFF) ^ 0xF0F0; break;
-	case 0x1A0000: case 0x1B0000: value = ((addr >> 1) & 0xFFFF) ^ 0x0F0F; break;
-	case 0x1C0000: case 0x1D0000: value = ((addr >> 1) & 0xFFFF) ^ 0xFF00; break;
-	case 0x1E0000: case 0x1F0000: value = ((addr >> 1) & 0xFFFF) ^ 0x00FF; break;
+	switch (addr & 0x1f0000) {
+		case 0x000000:
+		case 0x010000: value = (addr >> 1) & 0xffff;							break;
+		case 0x020000: value = addr & 0xffff;									break;
+		case 0x030000: value = (addr & 0xffff) + 1;								break;
+		case 0x040000: value = 0xffff - (addr & 0xffff);						break;
+		case 0x050000: value = (0xffff - (addr & 0xffff)) - 1;					break;
+		case 0x060000: value = (addr & 0xffff) ^ 0xaaaa;						break;
+		case 0x070000: value = ((addr & 0xffff) ^ 0xaaaa) + 1;					break;
+		case 0x080000: value = (addr & 0xffff) ^ 0x5555;						break;
+		case 0x090000: value = ((addr & 0xffff) ^ 0x5555) - 1;					break;
+		case 0x0a0000:
+		case 0x0b0000: value = gba_vfame_pattern_right_shift2(addr);			break;
+		case 0x0c0000:
+		case 0x0d0000: value = 0xffff - gba_vfame_pattern_right_shift2(addr);	break;
+		case 0x0e0000:
+		case 0x0f0000: value = gba_vfame_pattern_right_shift2(addr) ^ 0xaaaa;	break;
+		case 0x100000:
+		case 0x110000: value = gba_vfame_pattern_right_shift2(addr) ^ 0x5555;	break;
+		case 0x120000: value = 0xffff - ((addr & 0xffff) >> 1);					break;
+		case 0x130000: value = 0xffff - ((addr & 0xffff) >> 1) - 0x8000;		break;
+		case 0x140000:
+		case 0x150000: value = ((addr >> 1) & 0xffff) ^ 0xaaaa;					break;
+		case 0x160000:
+		case 0x170000: value = ((addr >> 1) & 0xffff) ^ 0x5555;					break;
+		case 0x180000:
+		case 0x190000: value = ((addr >> 1) & 0xffff) ^ 0xf0f0;					break;
+		case 0x1a0000:
+		case 0x1b0000: value = ((addr >> 1) & 0xffff) ^ 0x0f0f;					break;
+		case 0x1c0000:
+		case 0x1d0000: value = ((addr >> 1) & 0xffff) ^ 0xff00;					break;
+		case 0x1e0000:
+		case 0x1f0000: value = ((addr >> 1) & 0xffff) ^ 0x00ff;					break;
 	}
 	return value & 0xFFFF;
 }
@@ -1235,23 +1246,23 @@ static FORCE_INLINE void gba_vfame_sram_write(gba_t* gba, UINT32 address, UINT8 
 {
 	gba_vfame_t* vfame = &gba->cart.vfame;
 	// Mode change sequence detection
-	if (address >= 0xFFF8 && address <= 0xFFFC) {
-		vfame->write_sequence[address - 0xFFF8] = value;
-		if (address == 0xFFFC) {
+	if (address >= 0xfff8 && address <= 0xfffc) {
+		vfame->write_sequence[address - 0xfff8] = value;
+		if (address == 0xfffc) {
 			static const UINT8 start_seq[5] = { 0x99, 0x02, 0x05, 0x02, 0x03 };
 			static const UINT8 end_seq[5]   = { 0x99, 0x03, 0x62, 0x02, 0x56 };
 			if (memcmp(start_seq, vfame->write_sequence, 5) == 0)
 				vfame->accepting_mode_change = true;
-			if (memcmp(end_seq, vfame->write_sequence, 5) == 0)
+			if (memcmp(end_seq,   vfame->write_sequence, 5) == 0)
 				vfame->accepting_mode_change = false;
 		}
 	}
 	if (vfame->accepting_mode_change) {
-		if (address == 0xFFFE) {
+		if (address == 0xfffe) {
 			vfame->sram_mode = value;
 			return;
-		} else if (address == 0xFFFD) {
-			vfame->rom_mode = value;
+		} else if (address == 0xfffd) {
+			vfame->rom_mode  = value;
 			return;
 		}
 	}
@@ -1261,19 +1272,19 @@ static FORCE_INLINE void gba_vfame_sram_write(gba_t* gba, UINT32 address, UINT8 
 	// addr_reorder[type][mode-1][16]
 	static const UINT8 addr_reorder[3][3][16] = {
 		{ // VFAME_STANDARD [0]
-			{ 15, 14, 9, 1, 8, 10, 7, 3, 5, 11, 4, 0, 13, 12, 2, 6 },
-			{ 15, 7, 13, 5, 11, 6, 0, 9, 12, 2, 10, 14, 3, 1, 8, 4 },
-			{ 15, 0, 3, 12, 2, 4, 14, 13, 1, 8, 6, 7, 9, 5, 11, 10 }
+			{ 15, 14,  9,  1,  8, 10,  7,  3,  5, 11,  4,  0, 13, 12,  2,  6 },
+			{ 15,  7, 13,  5, 11,  6,  0,  9, 12,  2, 10, 14,  3,  1,  8,  4 },
+			{ 15,  0,  3, 12,  2,  4, 14, 13,  1, 8,   6,  7,  9,  5, 11, 10 }
 		},
 		{ // VFAME_GEORGE [1]
-			{ 15, 7, 13, 1, 11, 10, 14, 9, 12, 2, 4, 0, 3, 5, 8, 6 },
-			{ 15, 14, 3, 12, 8, 4, 0, 13, 5, 11, 6, 7, 9, 1, 2, 10 },
-			{ 15, 0, 9, 5, 2, 6, 7, 3, 1, 8, 10, 14, 13, 12, 11, 4 }
+			{ 15,  7, 13,  1, 11, 10, 14,  9, 12,  2,  4,  0,  3,  5,  8,  6 },
+			{ 15, 14,  3, 12,  8,  4,  0, 13,  5, 11,  6,  7,  9,  1,  2, 10 },
+			{ 15,  0,  9,  5,  2,  6,  7,  3,  1,  8, 10, 14, 13, 12, 11,  4 }
 		},
 		{ // VFAME_ALTERNATE [2]
-			{ 15, 0, 13, 5, 8, 4, 7, 3, 1, 2, 10, 14, 9, 12, 11, 6 },
-			{ 15, 7, 9, 1, 2, 6, 14, 13, 12, 11, 4, 0, 3, 5, 8, 10 },
-			{ 15, 14, 3, 12, 11, 10, 0, 9, 5, 8, 6, 7, 13, 1, 2, 4 }
+			{ 15,  0, 13,  5,  8,  4,  7,  3,  1,  2, 10, 14,  9, 12, 11,  6 },
+			{ 15,  7,  9,  1,  2,  6, 14, 13, 12, 11,  4,  0,  3,  5,  8, 10 },
+			{ 15, 14,  3, 12, 11, 10,  0,  9,  5,  8,  6,  7, 13,  1,  2,  4 }
 		},
 	};
 	// val_reorder[type][reorder_val-1][8]
@@ -1287,13 +1298,13 @@ static FORCE_INLINE void gba_vfame_sram_write(gba_t* gba, UINT32 address, UINT8 
 	INT32 type = vfame->type - 1; // 0: standard, 1: george, 2: alternate
 	if (mode != 0) {
 		address = gba_vfame_reorder_bits(address, addr_reorder[type][mode - 1], 16);
-		INT32 reorder_val = (vfame->sram_mode & 0xF) >> 2;
+		INT32 reorder_val = (vfame->sram_mode & 0xf) >> 2;
 		if (reorder_val != 0)
 			value = gba_vfame_reorder_bits(value, val_reorder[type][reorder_val - 1], 8);
 	}
 	if (vfame->sram_mode & 0x80)
-		value ^= 0xAA;
-	address &= 0x7FFF;
+		value ^= 0xaa;
+	address &= 0x7fff;
 	if (gba->mem.cart_backup[address] != value) {
 		gba->mem.cart_backup[address] = value;
 		gba->cart.backup_is_dirty = true;
@@ -2059,14 +2070,14 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 	// VFame (FC Mini) cartridge detection
 	{
 		static const UINT8 vfame_init_seq[16] = {
-			0xB4, 0x00, 0x9F, 0xE5, 0x99, 0x10, 0xA0, 0xE3,
-			0x00, 0x10, 0xC0, 0xE5, 0xAC, 0x00, 0x9F, 0xE5
+			0xb4, 0x00, 0x9f, 0xe5, 0x99, 0x10, 0xa0, 0xe3,
+			0x00, 0x10, 0xc0, 0xe5, 0xac, 0x00, 0x9f, 0xe5
 		};
-		if (emu->rom_size >= 0x16C && memcmp(vfame_init_seq, emu->rom_data + 0x15C, 16) == 0) {
-			gba->cart.vfame.type = 1; // VFAME_STANDARD
+		if (emu->rom_size >= 0x16C && memcmp(vfame_init_seq, emu->rom_data + 0x15c, 16) == 0) {
+			gba->cart.vfame.type      =  1;		// VFAME_STANDARD
 			gba->cart.vfame.rom_mode  = -1;
 			gba->cart.vfame.sram_mode = -1;
-			gba->cart.backup_type = GBA_BACKUP_SRAM;
+			gba->cart.backup_type     = GBA_BACKUP_SRAM;
 		}
 	}
 
@@ -2307,7 +2318,7 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 			obj_window_control   = SB_BFE(WINOUT, 8, 6);
 		bool  display_obj        = SB_BFE(dispcnt, 12, 1);
 		if (display_obj) {
-			INT32 sprite_cycles = SB_BFE(dispcnt, 5, 1) ? 954 : 1210;
+			INT32 sprite_cycles  = SB_BFE(dispcnt, 5, 1) ? 954 : 1210;
 			for (INT32 o = 0; o < 128; ++o) {
 				UINT16 attr0 = *(UINT16*)(gba->mem.oam + o * 8 + 0);
 				//Attr0
