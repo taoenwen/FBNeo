@@ -30,7 +30,7 @@ struct CDImageTrack {
 struct CDImage;
 
 CDImage* CDImageOpen(const TCHAR* szPath);
-void CDImageClose(CDImage* pImage);
+void  CDImageClose(CDImage* pImage);
 INT32 CDImageGetTrackCount(const CDImage* pImage);
 INT32 CDImageGetAudioTrackCount(const CDImage* pImage);
 INT32 CDImageGetSectorCount(const CDImage* pImage);
