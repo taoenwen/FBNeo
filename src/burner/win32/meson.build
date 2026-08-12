@@ -60,7 +60,7 @@ frontend_sources = files(
     'memcard.cpp',
     'menu.cpp',
     'misc_win32.cpp',
-    'neocdlist.cpp',
+    '../cdlist.cpp',
     'neocdsel.cpp',
     'numdial.cpp',
     'paletteviewer.cpp',

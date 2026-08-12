@@ -63,6 +63,7 @@ const TCHAR* ChdTrackTypeName(INT32 nType);
 INT32 ChdGetVersion(ChdImage* pImage);
 INT32 ChdGetHunkBytes(ChdImage* pImage);
 INT32 ChdGetFramesPerHunk(ChdImage* pImage);
+INT32 ChdGetSha1(ChdImage* pImage, UINT8* pSha1);
 
 // Total logical sectors on the disc (lead-out LBA).
 INT32 ChdGetTotalFrames(ChdImage* pImage);

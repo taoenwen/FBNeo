@@ -3109,8 +3109,8 @@
     <ClCompile Include="..\..\src\burner\win32\misc_win32.cpp">
       <Filter>burner\win32</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\burner\win32\neocdlist.cpp">
-      <Filter>burner\win32</Filter>
+    <ClCompile Include="..\..\src\burner\cdlist.cpp">
+      <Filter>burner</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\burner\win32\neocdsel.cpp">
       <Filter>burner\win32</Filter>
