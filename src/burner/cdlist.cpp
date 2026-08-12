@@ -3,7 +3,7 @@
 #include "neocdlist.h"
 #include "cd_img.h"
 #include "neocdlist_games.h"
-#include "pcecdlist_game.h"
+#include "pcecdlist_games.h"
 
 static NGCDGAME* pNeoGame;
 
