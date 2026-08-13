@@ -43539,7 +43539,7 @@ struct BurnDriver BurnDrvgba_strawsd = {
 
 // Street Fighter Alpha 3 (Europe)
 static struct BurnRomInfo gba_sfa3RomDesc[] = {
-	{ "Street Fighter Alpha 3 (E)(2002)(Ubi Soft).gba",	0x0800000,	0x93c5cf69,	BRF_ESS | BRF_PRG },
+	{ "Street Fighter Alpha 3 (E)(2002)(Capcom).gba",	0x0800000,	0x93c5cf69,	BRF_ESS | BRF_PRG },
 };
 
 STDROMPICKEXT(gba_sfa3, gba_sfa3, gba_gba)
@@ -43547,7 +43547,7 @@ STD_ROM_FN(gba_sfa3)
 
 struct BurnDriver BurnDrvgba_sfa3 = {
 	"gba_sfa3", NULL, "gba_gba", NULL, "2002",
-	"Street Fighter Alpha 3 (Europe)\0", NULL, "Ubi Soft", "Game Boy Advance",
+	"Street Fighter Alpha 3 (Europe)\0", NULL, "Capcom", "Game Boy Advance",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_VSFIGHT, FBF_SF,
 	GbaGetZipName, gba_sfa3RomInfo, gba_sfa3RomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
@@ -44923,9 +44923,9 @@ struct BurnDriver BurnDrvgba_srobotr = {
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
 
-// Super Street Fighter II Turbo - Revival (Europe)
+// Super Street Fighter II Turbo - Revival (Europe, Rev 1)
 static struct BurnRomInfo gba_ssf2tRomDesc[] = {
-	{ "Super Street Fighter II Turbo - Revival (E)(2001)(Ubi Soft).gba",	0x0800000,	0x461b4590,	BRF_ESS | BRF_PRG },
+	{ "Super Street Fighter II Turbo - Revival (E, Rev 1)(2001)(Capcom).gba",	0x0800000,	0x459600a9,	BRF_ESS | BRF_PRG },
 };
 
 STDROMPICKEXT(gba_ssf2t, gba_ssf2t, gba_gba)
@@ -44933,7 +44933,7 @@ STD_ROM_FN(gba_ssf2t)
 
 struct BurnDriver BurnDrvgba_ssf2t = {
 	"gba_ssf2t", NULL, "gba_gba", NULL, "2001",
-	"Super Street Fighter II Turbo - Revival (Europe)\0", NULL, "Ubi Soft", "Game Boy Advance",
+	"Super Street Fighter II Turbo - Revival (Europe, Rev 1)\0", NULL, "Capcom", "Game Boy Advance",
 	NULL, NULL, NULL, NULL,
 	BDF_GAME_WORKING, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_VSFIGHT, FBF_SF,
 	GbaGetZipName, gba_ssf2tRomInfo, gba_ssf2tRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
@@ -55231,6 +55231,44 @@ struct BurnDriver BurnDrvgba_celeste2 = {
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
 
+// Chip's Advance (HB, v2.1)
+
+static struct BurnRomInfo gba_chipsadvRomDesc[] = {
+	{ "Chip's Advance v2.1 (2007)(PortableDev - Alekmaul).gba",	10498128,	0x586c4345,	BRF_ESS | BRF_PRG },
+};
+
+STDROMPICKEXT(gba_chipsadv, gba_chipsadv, gba_gba)
+STD_ROM_FN(gba_chipsadv)
+
+struct BurnDriver BurnDrvgba_chipsadv = {
+	"gba_chipsadv", NULL, "gba_gba", NULL, "2007",
+	"Chip's Advance (HB, v2.1)\0", NULL, "PortableDev - Alekmaul", "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_HOMEBREW, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_PUZZLE, 0,
+	GbaGetZipName, gba_chipsadvRomInfo, gba_chipsadvRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
+	GBA_WIDTH, GBA_HEIGHT, 3, 2
+};
+
+// Chip's Challenge (HB, 220412)
+
+static struct BurnRomInfo gba_chipschRomDesc[] = {
+	{ "Chip's Challenge 220412 (2022)(Alekmaul).gba",	5497328,	0x103359bd,	BRF_ESS | BRF_PRG },
+};
+
+STDROMPICKEXT(gba_chipsch, gba_chipsch, gba_gba)
+STD_ROM_FN(gba_chipsch)
+
+struct BurnDriver BurnDrvgba_chipsch = {
+	"gba_chipsch", NULL, "gba_gba", NULL, "2022",
+	"Chip's Challenge (HB, 220412)\0", "Published by The Retro Room Games", "Alekmaul", "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_GAME_WORKING | BDF_HOMEBREW, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_PUZZLE, 0,
+	GbaGetZipName, gba_chipschRomInfo, gba_chipschRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
+	GBA_WIDTH, GBA_HEIGHT, 3, 2
+};
+
 // Crypt Sweeper (HB)
 
 static struct BurnRomInfo gba_cryptsweepRomDesc[] = {
@@ -55415,7 +55453,7 @@ struct BurnDriver BurnDrvgba_nebulus = {
 	"gba_nebulus", NULL, "gba_gba", NULL, "2004",
 	"Nebulus (HB, v1.2)\0", NULL, "Foxy's Softs", "Game Boy Advance",
 	NULL, NULL, NULL, NULL,
-	BDF_GAME_WORKING | BDF_HOMEBREW, 2, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_PLATFORM, 0,
+	BDF_GAME_WORKING | BDF_HOMEBREW, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_PLATFORM, 0,
 	GbaGetZipName, gba_nebulusRomInfo, gba_nebulusRomName, NULL, NULL, NULL, NULL, GbaInputInfo, NULL,
 	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
 	GBA_WIDTH, GBA_HEIGHT, 3, 2

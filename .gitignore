@@ -24,3 +24,4 @@ nvram
 *.nvr
 config/*
 fbneo.dat
+src/burner/win32/RCa07924
