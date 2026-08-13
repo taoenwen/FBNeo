@@ -391,6 +391,7 @@ void UnloadDrvIcons();
 // neocdsel.cpp
 int NeoCDList_Init();
 extern bool  bNeoCDListScanSub;
+extern bool  bNeoCDListScanOnlyISO;
 extern TCHAR szNeoCDCoverDir[MAX_PATH];
 extern TCHAR szNeoCDPreviewDir[MAX_PATH];
 extern TCHAR szNeoCDGamesDir[MAX_PATH];
