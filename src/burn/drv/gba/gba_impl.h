@@ -721,12 +721,14 @@ typedef struct {
 } gba_obj_drawer_t;
 
 typedef struct {
-	INT32 cycle;
-	INT32 cycle_limit;
-	INT32 target_line;
-	INT32 epoch_line;
-	INT32 mosaic_y;
-	INT32 last_sync;
+	INT32  cycle;
+	INT32  cycle_limit;
+	INT32  target_line;
+	INT32  epoch_line;
+	INT32  mosaic_y;
+	UINT64 last_sync;
+	UINT64 vram_access;
+	UINT64 oam_access;
 	bool  active;
 	INT32 oam_index;
 	INT32 oam_step;
@@ -746,6 +748,57 @@ typedef struct {
 } gba_obj_engine_t;
 
 typedef struct {
+	INT32  fetches;
+	UINT32 tile_address;
+	UINT32 palette;
+	bool   flip_x;
+	UINT16 piso_data;
+	INT32  piso_remaining;
+} gba_bg_text_t;
+
+typedef struct {
+	INT32  x;
+	INT32  y;
+	bool   out_of_bounds;
+	UINT16 tile_address;
+} gba_bg_affine_t;
+
+typedef struct {
+	UINT64 last_sync;
+	UINT64 vram_access;
+	UINT32 cycle;
+	gba_bg_text_t text[4];
+	gba_bg_affine_t affine[2];
+	UINT32 buffer[240][4];
+	UINT16 vram_latch;
+} gba_bg_engine_t;
+
+typedef struct {
+	UINT64 last_sync;
+	UINT32 cycle;
+	bool   v_flag[2];
+	bool   h_flag[2];
+	UINT8  buffer[240];
+} gba_window_engine_t;
+
+typedef struct {
+	UINT64 last_sync;
+	UINT64 pram_access;
+	UINT32 cycle;
+	UINT32 bg_mosaic_x;
+	UINT32 obj_mosaic_x;
+	INT32  layer[2];
+	UINT32 color[2];
+	bool   force_alpha;
+	bool   forced_blank;
+	UINT16 color_left;
+	UINT16 obj_latch;
+	UINT8  window_control;
+} gba_merge_engine_t;
+
+typedef struct {
+	UINT64 master_clock;
+	UINT64 committed_clock;
 	INT32  scan_clock;
 	bool   last_vblank;
 	bool   last_hblank;
@@ -763,7 +816,10 @@ typedef struct {
 	float  ghosting_strength;
 	UINT32 mosaic_y_counter;
 	UINT32 bg_mosaic_y_counter;
+	gba_bg_engine_t bg;
 	gba_obj_engine_t obj;
+	gba_window_engine_t window_engine;
+	gba_merge_engine_t merge;
 	UINT16 obj_mosaic_latch;
 	INT32  obj_mosaic_x;
 } gba_ppu_t;
@@ -1135,7 +1191,11 @@ static FORCE_INLINE UINT16 gba_gpio_read16(gba_t* gba, UINT32 address)
 // Returns a pointer to the data backing the baddr (when not DWORD aligned, it
 // ignores the lowest 2 bits.
 static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 baddr, INT32 req_type);
-static void gba_obj_sync(gba_t* gba);
+static void gba_ppu_sync_to(gba_t* gba, UINT64 target_clock);
+static FORCE_INLINE void gba_ppu_sync(gba_t* gba)
+{
+	gba_ppu_sync_to(gba, gba->ppu.committed_clock);
+}
 static FORCE_INLINE UINT32 gba_read32(gba_t* gba, UINT32 baddr)
 {
 	if (gba_gpio_address(gba, baddr)) {
@@ -1445,7 +1505,7 @@ static FORCE_INLINE void gba_obj_write_sync(gba_t* gba, UINT32 baddr)
 {
 	UINT32 region = baddr >> 24;
 	if (region >= 0x5 && region <= 0x7)
-		gba_obj_sync(gba);
+		gba_ppu_sync(gba);
 }
 
 static FORCE_INLINE void gba_store32(gba_t* gba, UINT32 baddr, UINT32 data)
@@ -1524,7 +1584,7 @@ static FORCE_INLINE void gba_store8_debug(gba_t* gba, UINT32 baddr, UINT32 data)
 			return;
 		}
 		//Mask is 0xfe to catch the sram mirror at 0x0f and 0x0e
-		if ((baddr & 0xfe000000) == 0xe000000) { 
+		if ((baddr & 0xfe000000) == 0xe000000) {
 			gba_process_backup_write(gba, baddr, data);
 			return;
 		}
@@ -1657,6 +1717,7 @@ static void gba_obj_fetch_vram(gba_t* gba)
 	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
 	bool map_1d = SB_BFE(dispcnt, 6, 1);
 	INT32 boundary = gba_obj_vram_boundary(gba);
+	obj->vram_access = gba->ppu.committed_clock;
 	INT32 width = dr->width;
 	INT32 height = dr->height;
 	UINT32 base_tile = dr->tile_number;
@@ -1777,6 +1838,7 @@ static void gba_obj_fetch_oam(gba_t* gba)
 	obj->oam_delay_wait = false;
 	gba_obj_drawer_t* dr = &obj->drawer[obj->state_wr];
 	INT32 step = obj->oam_step;
+	obj->oam_access = gba->ppu.committed_clock;
 
 	if (step == 0) {
 		if (obj->oam_index >= 128) {
@@ -1894,17 +1956,329 @@ static void gba_obj_fetch_oam(gba_t* gba)
 
 // Advance the OBJ pipeline to the committed master clock. Called each
 // gba_tick_ppu and before any OAM/VRAM/PRAM/PPU-MMIO write commits.
-static void gba_obj_sync(gba_t* gba)
+static FORCE_INLINE bool gba_ppu_forced_blank(gba_t* gba)
+{
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	return ((gba->ppu.dispcnt_pipeline[0] | dispcnt) & (1 << 7)) != 0;
+}
+
+static FORCE_INLINE INT32 gba_ppu_obj_vram_boundary(gba_t* gba)
+{
+	INT32 mode = SB_BFE(gba_io_read16(gba, GBA_DISPCNT), 0, 3);
+	return mode >= 3 && mode <= 5 ? 0x14000 : 0x10000;
+}
+
+static FORCE_INLINE UINT8 gba_bg_fetch8(gba_t* gba, UINT32 cycle, UINT32 address)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	if (gba_ppu_forced_blank(gba))
+		return 0;
+	if (address < (UINT32)gba_ppu_obj_vram_boundary(gba)) {
+		bg->vram_access = gba->ppu.committed_clock - bg->cycle + cycle;
+		bg->vram_latch = *(UINT16*)(gba->mem.vram + (address & ~1u));
+		return gba->mem.vram[address];
+	}
+	return ((UINT8*)&bg->vram_latch)[address & 1];
+}
+
+static FORCE_INLINE UINT16 gba_bg_fetch16(gba_t* gba, UINT32 cycle, UINT32 address)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	if (gba_ppu_forced_blank(gba))
+		return 0;
+	if (address < (UINT32)gba_ppu_obj_vram_boundary(gba)) {
+		bg->vram_access = gba->ppu.committed_clock - bg->cycle + cycle;
+		bg->vram_latch = *(UINT16*)(gba->mem.vram + (address & ~1u));
+		return bg->vram_latch;
+	}
+	return bg->vram_latch;
+}
+
+static void gba_bg_begin_line(gba_t* gba, INT32 line)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	bg->cycle = 0;
+	bg->last_sync = gba->ppu.committed_clock;
+	for (INT32 i = 0; i < 4; i++)
+		bg->text[i].fetches = 0;
+	for (INT32 i = 0; i < 2; i++) {
+		if (gba->ppu.aff[i].wrote_bgx || line == 0) {
+			INT32 value = gba_io_read32(gba, GBA_BG2X + i * 0x10) & 0x0fffffff;
+			gba->ppu.aff[i].render_bgx = (value << 4) >> 4;
+			gba->ppu.aff[i].wrote_bgx = false;
+		}
+		if (gba->ppu.aff[i].wrote_bgy || line == 0) {
+			INT32 value = gba_io_read32(gba, GBA_BG2Y + i * 0x10) & 0x0fffffff;
+			gba->ppu.aff[i].render_bgy = (value << 4) >> 4;
+			gba->ppu.aff[i].wrote_bgy = false;
+		}
+		bg->affine[i].x = gba->ppu.aff[i].render_bgx;
+		bg->affine[i].y = gba->ppu.aff[i].render_bgy;
+	}
+}
+
+static FORCE_INLINE void gba_bg_render_text(gba_t* gba, INT32 id, UINT32 cycle)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	gba_bg_text_t* text = &bg->text[id];
+	UINT16 bgcnt = gba_io_read16(gba, GBA_BG0CNT + id * 2);
+	bool full_palette = SB_BFE(bgcnt, 7, 1);
+	if (text->fetches > 0 && text->piso_remaining == 0) {
+		UINT16 data = gba_bg_fetch16(gba, cycle, text->tile_address);
+		if (text->flip_x) {
+			data = (data >> 8) | (data << 8);
+			if (!full_palette)
+				data = ((data & 0xf0f0) >> 4) | ((data & 0x0f0f) << 4);
+			text->tile_address -= 2;
+		} else {
+			text->tile_address += 2;
+		}
+		text->piso_data = data;
+		text->piso_remaining = 4;
+		text->fetches--;
+	}
+	UINT32 index;
+	INT32 screen_x = ((INT32)cycle >> 2) - 9;
+	if (full_palette) {
+		index = text->piso_data & 0xff;
+		text->piso_data >>= 8;
+		text->piso_remaining -= 2;
+	} else {
+		index = text->piso_data & 15;
+		if (index != 0)
+			index |= text->palette << 4;
+		text->piso_data >>= 4;
+		text->piso_remaining--;
+	}
+	if (screen_x >= 0 && screen_x < 240)
+		bg->buffer[screen_x][id] = index;
+
+	UINT32 hofs = gba_io_read16(gba, GBA_BG0HOFS + id * 4) & 0x1ff;
+	UINT32 step = (cycle >> 2) + (hofs & 7);
+	if (cycle < 1007 && step >= 8 && (step & 7) == 0) {
+		UINT32 tile_base = SB_BFE(bgcnt, 2, 2) << 14;
+		UINT32 map_block = SB_BFE(bgcnt, 8, 5);
+		UINT32 line = gba_io_read16(gba, GBA_VCOUNT) + (gba_io_read16(gba, GBA_BG0VOFS + id * 4) & 0x1ff);
+		if (SB_BFE(bgcnt, 6, 1))
+			line -= gba->ppu.bg_mosaic_y_counter;
+		UINT32 grid_x = (hofs >> 3) + (step >> 3) - 1;
+		UINT32 grid_y = line >> 3;
+		UINT32 tile_y = line & 7;
+		UINT32 screen_x_block = (grid_x >> 5) & 1;
+		UINT32 screen_y_block = (grid_y >> 5) & 1;
+		switch (SB_BFE(bgcnt, 14, 2)) {
+			case 1: map_block += screen_x_block; break;
+			case 2: map_block += screen_y_block; break;
+			case 3: map_block += screen_x_block + (screen_y_block << 1); break;
+		}
+		UINT32 address = (map_block << 11) + ((grid_y & 31) << 6) + ((grid_x & 31) << 1);
+		UINT16 tile = gba_bg_fetch16(gba, cycle, address);
+		if (cycle < 1004) {
+			UINT32 number = tile & 0x3ff;
+			bool flip_y = SB_BFE(tile, 11, 1);
+			text->palette = tile >> 12;
+			text->flip_x = SB_BFE(tile, 10, 1);
+			UINT32 real_tile_y = flip_y ? 7 - tile_y : tile_y;
+			if (full_palette) {
+				text->tile_address = tile_base + (number << 6) + (real_tile_y << 3) + (text->flip_x ? 6 : 0);
+				text->fetches = 4;
+			} else {
+				text->tile_address = tile_base + (number << 5) + (real_tile_y << 2) + (text->flip_x ? 2 : 0);
+				text->fetches = 2;
+			}
+			text->piso_remaining = 0;
+		}
+	}
+}
+
+static FORCE_INLINE void gba_bg_render_affine(gba_t* gba, INT32 id, UINT32 cycle)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	UINT16 bgcnt = gba_io_read16(gba, GBA_BG2CNT + id * 2);
+	if (cycle < 32)
+		return;
+	if ((cycle & 1) == 0) {
+		INT32 log_size = SB_BFE(bgcnt, 14, 2);
+		INT32 size = 128 << log_size;
+		INT32 mask = size - 1;
+		INT32 x = bg->affine[id].x >> 8;
+		INT32 y = bg->affine[id].y >> 8;
+		bg->affine[id].x += (INT16)gba_io_read16(gba, GBA_BG2PA + id * 0x10);
+		bg->affine[id].y += (INT16)gba_io_read16(gba, GBA_BG2PC + id * 0x10);
+		if (SB_BFE(bgcnt, 13, 1)) {
+			x &= mask;
+			y &= mask;
+			bg->affine[id].out_of_bounds = false;
+		} else {
+			bg->affine[id].out_of_bounds = ((x | y) & -size) != 0;
+		}
+		UINT16 address = (SB_BFE(bgcnt, 8, 5) << 11) + ((y >> 3) << (4 + log_size)) + (x >> 3);
+		UINT8 tile = gba_bg_fetch8(gba, cycle, address);
+		bg->affine[id].tile_address = (SB_BFE(bgcnt, 2, 2) << 14) + (tile << 6) + ((y & 7) << 3) + (x & 7);
+	} else {
+		UINT32 index = gba_bg_fetch8(gba, cycle, bg->affine[id].tile_address);
+		if (bg->affine[id].out_of_bounds)
+			index = 0;
+		UINT32 x = (cycle - 32) >> 2;
+		if (x < 240)
+			bg->buffer[x][2 + id] = index;
+	}
+}
+
+static FORCE_INLINE void gba_bg_render_bitmap(gba_t* gba, INT32 mode, UINT32 cycle)
+{
+	if (cycle < 32 || (cycle & 3) != 3)
+		return;
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	UINT32 screen_x = (cycle - 32) >> 2;
+	INT32 x = bg->affine[0].x >> 8;
+	INT32 y = bg->affine[0].y >> 8;
+	UINT32 color = 0;
+	if (mode == 3) {
+		UINT32 address = ((UINT32)y * 240 + (UINT32)x) * 2;
+		UINT16 data = gba_bg_fetch16(gba, cycle, address & 0x1ffff);
+		if (x >= 0 && x < 240 && y >= 0 && y < 160)
+			color = data | 0x80000000u;
+	} else if (mode == 4) {
+		UINT32 frame = SB_BFE(gba_io_read16(gba, GBA_DISPCNT), 4, 1);
+		UINT32 address = frame * 0xa000 + (UINT32)y * 240 + (UINT32)x;
+		UINT8 data = gba_bg_fetch8(gba, cycle, address & 0x1ffff);
+		if (x >= 0 && x < 240 && y >= 0 && y < 160)
+			color = data;
+	} else {
+		UINT32 frame = SB_BFE(gba_io_read16(gba, GBA_DISPCNT), 4, 1);
+		UINT32 address = frame * 0xa000 + ((UINT32)y * 160 + (UINT32)x) * 2;
+		UINT16 data = gba_bg_fetch16(gba, cycle, address & 0x1ffff);
+		if (x >= 0 && x < 160 && y >= 0 && y < 128)
+			color = data | 0x80000000u;
+	}
+	if (screen_x < 240)
+		bg->buffer[screen_x][2] = color;
+	bg->affine[0].x += (INT16)gba_io_read16(gba, GBA_BG2PA);
+	bg->affine[0].y += (INT16)gba_io_read16(gba, GBA_BG2PC);
+}
+
+static FORCE_INLINE void gba_bg_finish_line(gba_t* gba, INT32 mode)
+{
+	UINT16 mosaic = gba_io_read16(gba, GBA_MOSAIC);
+	INT32 line = gba_io_read16(gba, GBA_VCOUNT);
+	INT32 size_y = SB_BFE(mosaic, 4, 4) + 1;
+	if (line < 159) {
+		if (++gba->ppu.bg_mosaic_y_counter >= (UINT32)size_y)
+			gba->ppu.bg_mosaic_y_counter = 0;
+		else
+			gba->ppu.bg_mosaic_y_counter &= 15;
+	} else {
+		gba->ppu.bg_mosaic_y_counter = 0;
+	}
+	UINT16 effective = gba->ppu.dispcnt_pipeline[0] & gba_io_read16(gba, GBA_DISPCNT);
+	for (INT32 id = 0; id < 2; id++) {
+		bool mode_has_bg = id == 0 ? mode >= 1 && mode <= 5 : mode == 2;
+		if (!mode_has_bg || !(effective & (1 << (10 + id))))
+			continue;
+		INT32 pb = (INT16)gba_io_read16(gba, GBA_BG2PB + id * 0x10);
+		INT32 pd = (INT16)gba_io_read16(gba, GBA_BG2PD + id * 0x10);
+		UINT16 bgcnt = gba_io_read16(gba, GBA_BG2CNT + id * 2);
+		if (SB_BFE(bgcnt, 6, 1)) {
+			if (gba->ppu.bg_mosaic_y_counter == 0) {
+				gba->ppu.aff[id].render_bgx += pb * size_y;
+				gba->ppu.aff[id].render_bgy += pd * size_y;
+			}
+		} else {
+			gba->ppu.aff[id].render_bgx += pb;
+			gba->ppu.aff[id].render_bgy += pd;
+		}
+	}
+}
+
+static void gba_bg_sync_to(gba_t* gba, UINT64 target_clock)
+{
+	gba_bg_engine_t* bg = &gba->ppu.bg;
+	UINT64 delta = target_clock - bg->last_sync;
+	if (delta == 0 || bg->cycle >= 1232)
+		return;
+	bg->last_sync = target_clock;
+	while (delta-- > 0 && bg->cycle < 1232) {
+		UINT32 cycle = ++bg->cycle;
+		UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+		UINT16 effective = gba->ppu.dispcnt_pipeline[0] & dispcnt;
+		INT32 mode = SB_BFE(dispcnt, 0, 3);
+		if (mode <= 1) {
+			INT32 id = cycle & 3;
+			if ((id <= 1 || mode == 0) && (effective & (1 << (8 + id))))
+				gba_bg_render_text(gba, id, cycle);
+		}
+		if (cycle < 1007) {
+			if ((mode == 1 || mode == 2)) {
+				INT32 id = ~((INT32)cycle >> 1) & 1;
+				if ((id == 0 || mode == 2) && (effective & (1 << (10 + id))))
+					gba_bg_render_affine(gba, id, cycle);
+			} else if (mode >= 3 && mode <= 5 && (effective & (1 << 10))) {
+				gba_bg_render_bitmap(gba, mode, cycle);
+			}
+		}
+		if (cycle == 1232)
+			gba_bg_finish_line(gba, mode);
+	}
+}
+
+static void gba_window_begin_line(gba_t* gba, INT32 line)
+{
+	gba_window_engine_t* window = &gba->ppu.window_engine;
+	window->cycle = 0;
+	window->last_sync = gba->ppu.committed_clock;
+	for (INT32 id = 0; id < 2; id++) {
+		UINT16 winv = gba_io_read16(gba, GBA_WIN0V + id * 2);
+		if (line == SB_BFE(winv, 8, 8))
+			window->v_flag[id] = true;
+		if (line == SB_BFE(winv, 0, 8))
+			window->v_flag[id] = false;
+	}
+}
+
+static void gba_window_sync_to(gba_t* gba, UINT64 target_clock)
+{
+	gba_window_engine_t* window = &gba->ppu.window_engine;
+	UINT64 delta = target_clock - window->last_sync;
+	window->last_sync = target_clock;
+	while (delta-- > 0 && window->cycle < 1024) {
+		UINT32 cycle = window->cycle++;
+		if ((cycle & 3) != 0)
+			continue;
+		UINT32 x = cycle >> 2;
+		for (INT32 id = 0; id < 2; id++) {
+			UINT16 winh = gba_io_read16(gba, GBA_WIN0H + id * 2);
+			if (x == (UINT32)SB_BFE(winh, 8, 8))
+				window->h_flag[id] = true;
+			if (x == (UINT32)SB_BFE(winh, 0, 8))
+				window->h_flag[id] = false;
+			if (x < 240) {
+				if (window->h_flag[id] && window->v_flag[id])
+					window->buffer[x] |= 1 << id;
+				else
+					window->buffer[x] &= ~(1 << id);
+			}
+		}
+	}
+}
+
+static void gba_merge_begin_line(gba_t* gba)
+{
+	gba_merge_engine_t* merge = &gba->ppu.merge;
+	merge->cycle = 0;
+	merge->last_sync = gba->ppu.committed_clock;
+	merge->bg_mosaic_x = 0;
+	merge->obj_mosaic_x = 0;
+	merge->obj_latch = 0;
+}
+
+static void gba_obj_sync_to(gba_t* gba, UINT64 target_clock)
 {
 	gba_obj_engine_t* obj = &gba->ppu.obj;
-	INT32 committed = gba->ppu.scan_clock - gba->ppu.fast_forward_ticks;
-	committed = ((committed % 280896) + 280896) % 280896;
-	INT32 delta = committed - obj->last_sync;
-	if (delta < 0)
-		delta += 280896;
-	if (delta <= 0)
+	UINT64 delta = target_clock - obj->last_sync;
+	if (delta == 0)
 		return;
-	obj->last_sync = committed;
+	obj->last_sync = target_clock;
 	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
 	bool obj_enable = SB_BFE(dispcnt, 12, 1);
 	while (delta-- > 0) {
@@ -1934,6 +2308,229 @@ static void gba_obj_sync(gba_t* gba)
 	}
 }
 
+static FORCE_INLINE UINT16 gba_merge_blend(UINT16 color_a, UINT16 color_b, INT32 eva, INT32 evb)
+{
+	INT32 ra = SB_BFE(color_a, 0, 5);
+	INT32 ga = ((color_a >> 4) & 62) | (color_a >> 15);
+	INT32 ba = SB_BFE(color_a, 10, 5);
+	INT32 rb = SB_BFE(color_b, 0, 5);
+	INT32 gb = ((color_b >> 4) & 62) | (color_b >> 15);
+	INT32 bb = SB_BFE(color_b, 10, 5);
+	if (eva > 16) eva = 16;
+	if (evb > 16) evb = 16;
+	INT32 r = (ra * eva + rb * evb + 8) >> 4;
+	INT32 g = (ga * eva + gb * evb + 8) >> 4;
+	INT32 b = (ba * eva + bb * evb + 8) >> 4;
+	if (r > 31) r = 31;
+	if (g > 63) g = 63;
+	if (b > 31) b = 31;
+	return (b << 10) | ((g >> 1) << 5) | r;
+}
+
+static FORCE_INLINE UINT16 gba_merge_brighten(UINT16 color, INT32 evy)
+{
+	if (evy > 16) evy = 16;
+	INT32 r = SB_BFE(color, 0, 5);
+	INT32 g = ((color >> 4) & 62) | (color >> 15);
+	INT32 b = SB_BFE(color, 10, 5);
+	r += ((31 - r) * evy + 8) >> 4;
+	g += ((63 - g) * evy + 8) >> 4;
+	b += ((31 - b) * evy + 8) >> 4;
+	return (b << 10) | ((g >> 1) << 5) | r;
+}
+
+static FORCE_INLINE UINT16 gba_merge_darken(UINT16 color, INT32 evy)
+{
+	if (evy > 16) evy = 16;
+	INT32 r = SB_BFE(color, 0, 5);
+	INT32 g = ((color >> 4) & 62) | (color >> 15);
+	INT32 b = SB_BFE(color, 10, 5);
+	r -= (r * evy + 7) >> 4;
+	g -= (g * evy + 7) >> 4;
+	b -= (b * evy + 7) >> 4;
+	return (b << 10) | ((g >> 1) << 5) | r;
+}
+
+static FORCE_INLINE UINT16 gba_merge_fetch_pram(gba_t* gba, UINT32 cycle, UINT32 index)
+{
+	gba->ppu.merge.pram_access = gba->ppu.committed_clock - gba->ppu.merge.cycle + cycle;
+	return *(UINT16*)(gba->mem.palette + ((index << 1) & 0x3fe));
+}
+
+static FORCE_INLINE UINT8 gba_merge_window_control(gba_t* gba, UINT32 x, bool enable_obj)
+{
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	bool win0 = SB_BFE(dispcnt, 13, 1);
+	bool win1 = SB_BFE(dispcnt, 14, 1);
+	bool objwin = SB_BFE(dispcnt, 15, 1) && enable_obj;
+	if (!win0 && !win1 && !objwin)
+		return 0x3f;
+	UINT16 winin = gba_io_read16(gba, GBA_WININ);
+	UINT16 winout = gba_io_read16(gba, GBA_WINOUT);
+	UINT8 inside = gba->ppu.window_engine.buffer[x];
+	if (win0 && (inside & 1))
+		return SB_BFE(winin, 0, 6);
+	if (win1 && (inside & 2))
+		return SB_BFE(winin, 8, 6);
+	UINT16 raw = gba->ppu.obj.buffer[gba->ppu.obj.buf_rd][x];
+	if (objwin && GBA_OBJ_PIXEL_WINDOW(raw))
+		return SB_BFE(winout, 8, 6);
+	return SB_BFE(winout, 0, 6);
+}
+
+static FORCE_INLINE void gba_merge_store_pixel(gba_t* gba, INT32 x, INT32 y, UINT16 color)
+{
+	INT32 p = (x + y * 240) * 4;
+	INT32 r = SB_BFE(color, 0, 5) * 8;
+	INT32 g = SB_BFE(color, 5, 5) * 8;
+	INT32 b = SB_BFE(color, 10, 5) * 8;
+	gba->framebuffer[p + 0] = r;
+	gba->framebuffer[p + 1] = g;
+	gba->framebuffer[p + 2] = b;
+}
+
+static void gba_merge_phase0(gba_t* gba, UINT32 x)
+{
+	static const INT8 min_bg[8] = { 0, 0, 2, 2, 2, 2, 0, 0 };
+	static const INT8 max_bg[8] = { 3, 2, 3, 2, 2, 2, -1, -1 };
+	gba_merge_engine_t* merge = &gba->ppu.merge;
+	UINT16 live = gba_io_read16(gba, GBA_DISPCNT);
+	UINT16 effective = gba->ppu.dispcnt_pipeline[0] & live;
+	INT32 mode = SB_BFE(live, 0, 3);
+	bool enable_obj = (effective & (1 << 12)) != 0;
+	merge->window_control = gba_merge_window_control(gba, x, enable_obj);
+	merge->forced_blank = ((gba->ppu.dispcnt_pipeline[0] | live) & (1 << 7)) != 0;
+	if (merge->forced_blank) {
+		merge->color[0] = 0x7fff;
+		return;
+	}
+	INT32 bg_list[4];
+	INT32 bg_count = 0;
+	for (INT32 priority = 0; priority < 4; priority++) {
+		for (INT32 id = min_bg[mode]; id <= max_bg[mode]; id++) {
+			UINT16 bgcnt = gba_io_read16(gba, GBA_BG0CNT + id * 2);
+			if (SB_BFE(bgcnt, 0, 2) == priority && (effective & (1 << (8 + id))))
+				bg_list[bg_count++] = id;
+		}
+	}
+	UINT32 priorities[2] = { 3, 3 };
+	merge->layer[0] = merge->layer[1] = 5;
+	merge->color[0] = merge->color[1] = 0;
+	INT32 list_index = 0;
+	for (INT32 slot = 0; slot < 2; slot++) {
+		while (list_index < bg_count) {
+			INT32 id = bg_list[list_index++];
+			if (!SB_BFE(merge->window_control, id, 1))
+				continue;
+			UINT16 bgcnt = gba_io_read16(gba, GBA_BG0CNT + id * 2);
+			UINT32 mx = x - (SB_BFE(bgcnt, 6, 1) ? merge->bg_mosaic_x : 0);
+			UINT32 color = gba->ppu.bg.buffer[mx][id];
+			if (color != 0) {
+				merge->layer[slot] = id;
+				merge->color[slot] = color;
+				priorities[slot] = SB_BFE(bgcnt, 0, 2);
+				break;
+			}
+		}
+	}
+	merge->force_alpha = false;
+	UINT16 raw = enable_obj ? gba->ppu.obj.buffer[gba->ppu.obj.buf_rd][x] : 0;
+	if (!GBA_OBJ_PIXEL_MOSAIC(raw) || !GBA_OBJ_PIXEL_MOSAIC(merge->obj_latch) ||
+		GBA_OBJ_PIXEL_PRIORITY(raw) < GBA_OBJ_PIXEL_PRIORITY(merge->obj_latch) || merge->obj_mosaic_x == 0)
+		merge->obj_latch = raw;
+	if (enable_obj && SB_BFE(merge->window_control, 4, 1) && GBA_OBJ_PIXEL_COLOR(merge->obj_latch) != 0) {
+		UINT32 priority = GBA_OBJ_PIXEL_PRIORITY(merge->obj_latch);
+		UINT32 color = GBA_OBJ_PIXEL_COLOR(merge->obj_latch) | 0x100;
+		if (priority <= priorities[0]) {
+			merge->layer[1] = merge->layer[0];
+			merge->color[1] = merge->color[0];
+			merge->layer[0] = 4;
+			merge->color[0] = color;
+			merge->force_alpha = GBA_OBJ_PIXEL_ALPHA(merge->obj_latch);
+		} else if (priority <= priorities[1]) {
+			merge->layer[1] = 4;
+			merge->color[1] = color;
+		}
+	}
+	if ((merge->color[0] & 0x80000000u) == 0)
+		merge->color[0] = gba_merge_fetch_pram(gba, merge->cycle, merge->color[0]);
+}
+
+static void gba_merge_phase2(gba_t* gba, UINT32 x, INT32 y)
+{
+	gba_merge_engine_t* merge = &gba->ppu.merge;
+	if (!merge->forced_blank) {
+		UINT16 bldcnt = gba_io_read16(gba, GBA_BLDCNT);
+		bool have_src = SB_BFE(bldcnt, 8 + merge->layer[1], 1);
+		if (merge->force_alpha && have_src) {
+			if ((merge->color[1] & 0x80000000u) == 0)
+				merge->color[1] = gba_merge_fetch_pram(gba, merge->cycle, merge->color[1]);
+			UINT16 alpha = gba_io_read16(gba, GBA_BLDALPHA);
+			merge->color[0] = gba_merge_blend(merge->color[0], merge->color[1], SB_BFE(alpha, 0, 5), SB_BFE(alpha, 8, 5));
+		} else if (SB_BFE(merge->window_control, 5, 1)) {
+			bool have_dst = SB_BFE(bldcnt, merge->layer[0], 1);
+			INT32 effect = SB_BFE(bldcnt, 6, 2);
+			if (effect == 1 && have_dst && have_src) {
+				if ((merge->color[1] & 0x80000000u) == 0)
+					merge->color[1] = gba_merge_fetch_pram(gba, merge->cycle, merge->color[1]);
+				UINT16 alpha = gba_io_read16(gba, GBA_BLDALPHA);
+				merge->color[0] = gba_merge_blend(merge->color[0], merge->color[1], SB_BFE(alpha, 0, 5), SB_BFE(alpha, 8, 5));
+			} else if (effect == 2 && have_dst) {
+				merge->color[0] = gba_merge_brighten(merge->color[0], SB_BFE(gba_io_read16(gba, GBA_BLDY), 0, 5));
+			} else if (effect == 3 && have_dst) {
+				merge->color[0] = gba_merge_darken(merge->color[0], SB_BFE(gba_io_read16(gba, GBA_BLDY), 0, 5));
+			}
+		}
+	}
+	UINT16 color = merge->color[0];
+	if (x & 1) {
+		UINT16 left = merge->color_left;
+		if (gba_io_read16(gba, GBA_GREENSWP) & 1) {
+			UINT16 mask = 31 << 5;
+			UINT16 gl = left & mask;
+			UINT16 gr = color & mask;
+			left = (left & ~mask) | gr;
+			color = (color & ~mask) | gl;
+		}
+		gba_merge_store_pixel(gba, x - 1, y, left);
+		gba_merge_store_pixel(gba, x, y, color);
+	} else {
+		merge->color_left = color;
+	}
+	INT32 bg_size = SB_BFE(gba_io_read16(gba, GBA_MOSAIC), 0, 4) + 1;
+	INT32 obj_size = SB_BFE(gba_io_read16(gba, GBA_MOSAIC), 8, 4) + 1;
+	if (++merge->bg_mosaic_x == (UINT32)bg_size) merge->bg_mosaic_x = 0;
+	if (++merge->obj_mosaic_x == (UINT32)obj_size) merge->obj_mosaic_x = 0;
+}
+
+static void gba_merge_sync_to(gba_t* gba, UINT64 target_clock)
+{
+	gba_merge_engine_t* merge = &gba->ppu.merge;
+	UINT64 delta = target_clock - merge->last_sync;
+	merge->last_sync = target_clock;
+	INT32 y = (INT32)((target_clock / 1232) % 228);
+	while (delta-- > 0 && merge->cycle < 1006) {
+		INT32 pixel_cycle = (INT32)merge->cycle - 46;
+		if (pixel_cycle >= 0) {
+			UINT32 x = (UINT32)pixel_cycle >> 2;
+			INT32 phase = pixel_cycle & 3;
+			if (phase == 0)
+				gba_merge_phase0(gba, x);
+			else if (phase == 2)
+				gba_merge_phase2(gba, x, y);
+		}
+		merge->cycle++;
+	}
+}
+
+// The ordering matches NanoBoyAdvance's PPU::Sync().
+static void gba_ppu_sync_to(gba_t* gba, UINT64 target_clock)
+{
+	gba_bg_sync_to(gba, target_clock);
+	gba_obj_sync_to(gba, target_clock);
+	gba_window_sync_to(gba, target_clock);
+	gba_merge_sync_to(gba, target_clock);
+}
 
 static FORCE_INLINE void gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcnt)
 {
@@ -2008,6 +2605,36 @@ static FORCE_INLINE void gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcn
 	gba_io_store16(gba, GBA_WAITCNT, waitcnt);
 }
 
+static FORCE_INLINE bool gba_ppu_video_bus_busy(gba_t* gba, UINT32 address)
+{
+	UINT32 region = address >> 24;
+	UINT64 clock = gba->ppu.committed_clock;
+	if (region == 0x5)
+		return gba->ppu.merge.pram_access + 1 == clock;
+	if (region == 0x6) {
+		UINT32 offset = address & 0x1ffff;
+		if (offset < (UINT32)gba_ppu_obj_vram_boundary(gba))
+			return gba->ppu.bg.vram_access == clock;
+		return gba->ppu.obj.vram_access + 1 == clock;
+	}
+	if (region == 0x7)
+		return gba->ppu.obj.oam_access + 1 == clock;
+	return false;
+}
+
+static FORCE_INLINE void gba_ppu_add_video_wait(gba_t* gba, UINT32 address, INT32 request_size)
+{
+	UINT32 region = address >> 24;
+	if (region < 0x5 || region > 0x7)
+		return;
+	INT32 beats = request_size >= 2 ? 2 : 1;
+	for (INT32 beat = 0; beat < beats; beat++) {
+		gba_ppu_sync(gba);
+		if (gba_ppu_video_bus_busy(gba, address + beat * 2))
+			gba->mem.requests++;
+	}
+}
+
 static FORCE_INLINE void gba_compute_access_cycles(gba_t* gba, UINT32 address, INT32 request_size /*0: 1B,1: 2B,3: 4B*/)
 {
 	INT32 bank       = SB_BFE(address, 24, 4);
@@ -2048,12 +2675,21 @@ static FORCE_INLINE void gba_compute_access_cycles(gba_t* gba, UINT32 address, I
 		} else gba->mem.prefetch_size += wait;
 	}
 	gba->mem.requests += wait;
+	gba_ppu_add_video_wait(gba, address, request_size);
 }
 
 static FORCE_INLINE UINT32 gba_compute_access_cycles_dma(gba_t* gba, UINT32 address, INT32 request_size/*0: 1B,1: 2B,3: 4B*/)
 {
 	INT32 bank  = SB_BFE(address, 24, 4);
 	UINT32 wait = gba->mem.wait_state_table[bank * 4 + request_size];
+	UINT32 region = address >> 24;
+	if (region >= 0x5 && region <= 0x7) {
+		INT32 beats = request_size >= 2 ? 2 : 1;
+		for (INT32 beat = 0; beat < beats; beat++) {
+			gba_ppu_sync(gba);
+			wait += gba_ppu_video_bus_busy(gba, address + beat * 2);
+		}
+	}
 	return wait;
 }
 
@@ -2333,7 +2969,7 @@ static FORCE_INLINE void gba_process_mmio_read(gba_t* gba, UINT32 address)
 
 static bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT32 req_size_bytes)
 {
-	gba_obj_sync(gba);
+	gba_ppu_sync(gba);
 	UINT32 address_u32 = address & ~3;
 	UINT32 word_mask   = 0xffffffff;
 	UINT32 word_data   = data;
@@ -2596,6 +3232,9 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 	gba->ppu.obj.buf_wr = 1;
 	gba->ppu.obj.epoch_line = 0;
 	gba->ppu.obj.last_sync = 0;
+	gba_bg_begin_line(gba, 0);
+	gba_window_begin_line(gba, 0);
+	gba_merge_begin_line(gba);
 	gba_obj_begin_line(gba, 1);
 	if (gba->cpu.log_cmp_file) {
 		fclose(gba->cpu.log_cmp_file);
@@ -2612,20 +3251,16 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 #define GBA_LCD_VBLANK_START	(GBA_LCD_H*1232)
 #define GBA_LCD_VBLANK_END		(227*1232)
 
-//Returns true if the fast forward failed to be more efficient in main emu loop
+// Persistent PPU pipelines must observe every master clock until event-based
+// batching can advance all of their state without skipping fetch phases.
 static FORCE_INLINE INT32 gba_ppu_compute_max_fast_forward(gba_t* gba, bool render)
 {
-	INT32 scanline_clock = (gba->ppu.scan_clock) % 1232;
-	//If inside hblank, can fastforward to outside of hblank
-	if (scanline_clock >= GBA_LCD_HBLANK_START * 4 && scanline_clock <= GBA_LCD_HBLANK_END * 4)
-		return GBA_LCD_HBLANK_END   * 4 - scanline_clock - 1;
-	//If inside hrender, can fastforward to hblank if not the first pixel and not visible
-	bool not_visible = !render || gba->ppu.scan_clock > GBA_LCD_VBLANK_START;
-	if (not_visible && (scanline_clock >= 1 && scanline_clock <= GBA_LCD_HBLANK_START * 4))
-		return GBA_LCD_HBLANK_START * 4 - scanline_clock - 1;
-	return 3 - ((gba->ppu.scan_clock) % 4);
+	(void)gba;
+	(void)render;
+	return 0;
 }
 
+#if 0 // Replaced by the persistent merge engine.
 // Merge one OBJ line-buffer pixel: horizontal mosaic latch, per-pixel window,
 // seed first_target.
 static UINT8 gba_obj_merge_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
@@ -2683,28 +3318,30 @@ static UINT8 gba_obj_merge_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
 	gba->first_target_buffer[lcd_x] = col;
 	return window_control;
 }
+#endif
 
 static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 {
-	gba_obj_sync(gba);
-	if (SB_LIKELY(gba->ppu.fast_forward_ticks > 0)) {
-		gba->ppu.fast_forward_ticks--;
-		return;
+	gba_ppu_sync(gba);
+
+	INT32 scan_clock = (INT32)(gba->ppu.committed_clock % 280896);
+	INT32 lcd_y = scan_clock / 1232;
+	INT32 line_cycle = scan_clock % 1232;
+	bool pixel_phase = (line_cycle & 3) == 0;
+	UINT16 affine_dispcnt_latch = gba->ppu.dispcnt_pipeline[0];
+
+	if (line_cycle == 40) {
+		gba->ppu.dispcnt_pipeline[0] = gba->ppu.dispcnt_pipeline[1];
+		gba->ppu.dispcnt_pipeline[1] = gba->ppu.dispcnt_pipeline[2];
+		gba->ppu.dispcnt_pipeline[2] = gba_io_read16(gba, GBA_DISPCNT);
 	}
 
-	if (gba->ppu.scan_clock >= 280896) gba->ppu.scan_clock -= 280896;
-	INT32 lcd_y = (gba->ppu.scan_clock) / 1232;
-	INT32 lcd_x = ((gba->ppu.scan_clock) % 1232) / 4;
-	UINT16 affine_dispcnt_latch = gba->ppu.dispcnt_pipeline[0];
-	gba->ppu.scan_clock++;
-	gba->ppu.fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render) + 1;
-	gba->ppu.scan_clock += gba->ppu.fast_forward_ticks;
-	if (lcd_x == 0 || lcd_x == GBA_LCD_HBLANK_START || lcd_x == GBA_LCD_HBLANK_END) {
+	if (line_cycle == 0 || line_cycle == 1007) {
 		UINT16 disp_stat  = gba_io_read16(gba, GBA_DISPSTAT) & ~0x7;
 		UINT16 vcount_cmp = SB_BFE(disp_stat, 8, 8);
-		INT32  vcount     = (lcd_y + (lcd_x >= GBA_LCD_HBLANK_END)) % 228;
+		INT32  vcount     = lcd_y;
 		bool   vblank     = lcd_y >= 160 && lcd_y < 227;
-		bool   hblank     = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
+		bool   hblank     = line_cycle >= 1007;
 		disp_stat |= vblank ? 0x1 : 0;
 		disp_stat |= hblank ? 0x2 : 0;
 		disp_stat |= vcount == vcount_cmp ? 0x4 : 0;
@@ -2713,17 +3350,13 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 		UINT32 new_if = 0;
 		if (hblank != gba->ppu.last_hblank) {
 			gba->ppu.last_hblank = hblank;
-			bool hblank_irq_en   = SB_BFE(disp_stat, 4, 1);
+			bool hblank_irq_en = SB_BFE(disp_stat, 4, 1);
 			if (hblank && hblank_irq_en)
 				new_if |= (1 << GBA_INT_LCD_HBLANK);
 			gba->activate_dmas |= gba->dma_wait_ppu;
-			if (!hblank) {
-				gba->ppu.dispcnt_pipeline[0] = gba->ppu.dispcnt_pipeline[1];
-				gba->ppu.dispcnt_pipeline[1] = gba->ppu.dispcnt_pipeline[2];
-				gba->ppu.dispcnt_pipeline[2] = gba_io_read16(gba, GBA_DISPCNT);
-			}
 		}
-		if (lcd_y != gba->ppu.last_lcd_y) {
+		if (line_cycle == 0 && lcd_y != gba->ppu.last_lcd_y) {
+			disp_stat &= ~0x4;
 			if (vblank != gba->ppu.last_vblank) {
 				if (vblank)
 					gba->frame_in_progress = false;
@@ -2734,19 +3367,45 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 				gba->activate_dmas |= gba->dma_wait_ppu;
 			}
 			gba->ppu.last_lcd_y = lcd_y;
-			if (lcd_y == vcount_cmp) {
-				bool vcnt_irq_en = SB_BFE(disp_stat, 5, 1);
-				if (vcnt_irq_en)
-					new_if |= (1 << GBA_INT_LCD_VCOUNT);
-			}
+			if (lcd_y == vcount_cmp && SB_BFE(disp_stat, 5, 1))
+				new_if |= (1 << GBA_INT_LCD_VCOUNT);
 		}
 		gba_send_interrupt(gba, 3, new_if);
+		if (line_cycle == 0) {
+			if (lcd_y < 160) {
+				gba_bg_begin_line(gba, lcd_y);
+				gba_merge_begin_line(gba);
+			}
+			gba_window_begin_line(gba, lcd_y);
+		}
+	}
+	if (line_cycle == 1) {
+		UINT16 disp_stat = gba_io_read16(gba, GBA_DISPSTAT);
+		UINT16 vcount_cmp = SB_BFE(disp_stat, 8, 8);
+		bool old_flag = SB_BFE(disp_stat, 2, 1);
+		bool new_flag = lcd_y == vcount_cmp;
+		disp_stat = (disp_stat & ~0x4) | (new_flag ? 0x4 : 0);
+		gba_io_store16(gba, GBA_DISPSTAT, disp_stat);
+		if (!old_flag && new_flag && SB_BFE(disp_stat, 5, 1))
+			gba_send_interrupt(gba, 3, 1 << GBA_INT_LCD_VCOUNT);
 	}
 
+	gba->ppu.committed_clock++;
+	gba->ppu.master_clock = gba->ppu.committed_clock;
+	gba->ppu.scan_clock = (INT32)(gba->ppu.committed_clock % 280896);
+	gba->ppu.fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render);
+
+	(void)pixel_phase;
+	(void)affine_dispcnt_latch;
+	(void)render;
+	return;
+
+#if 0 // Replaced by persistent BG/Window/Merge pipelines above.
+	INT32 lcd_x = line_cycle / 4;
 	if (!render)
 		return;
 
-	if (lcd_x == GBA_LCD_HBLANK_END) {
+	if (line_cycle == 1228) {
 		if (lcd_y < 159) {
 			UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
 			INT32 mos_y = SB_BFE(mos_reg, 4, 4) + 1;
@@ -2778,7 +3437,7 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 			}
 		}
 	}
-	bool reload_ref_points = lcd_x == GBA_LCD_HBLANK_END || (lcd_y == 0 && lcd_x == 0);
+	bool reload_ref_points = line_cycle == 1228 || (lcd_y == 0 && lcd_x == 0);
 	if (reload_ref_points) {
 		//Latch BGX and BGY registers
 		for (INT32 aff = 0; aff < 2; ++aff) {
@@ -2802,6 +3461,14 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 	bool visible = lcd_x < 240 && lcd_y < 160;
 	if (visible) {
 		UINT8 window_control = gba_obj_merge_pixel(gba, lcd_x, lcd_y);
+		if (SB_BFE(dispcnt, 13, 2) != 0) {
+			UINT8 inside = gba->ppu.window_engine.buffer[lcd_x];
+			UINT16 winin = gba_io_read16(gba, GBA_WININ);
+			if (SB_BFE(dispcnt, 13, 1) && (inside & 1))
+				window_control = SB_BFE(winin, 0, 6);
+			else if (SB_BFE(dispcnt, 14, 1) && (inside & 2))
+				window_control = SB_BFE(winin, 8, 6);
+		}
 		if (bg_mode == 6 || bg_mode == 7) {
 			//Palette 0 is taken as the background
 		} else if (bg_mode <= 5) {
@@ -2809,9 +3476,33 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 				UINT32 col = 0;
 				if ((bg < 2 && bg_mode == 2) || (bg == 3 && bg_mode == 1) || (bg != 2 && bg_mode >= 3))
 					continue;
-				bool bg_en = SB_BFE(dispcnt, 8 + bg, 1);
+				bool bg_en = SB_BFE(gba->ppu.dispcnt_pipeline[0] & dispcnt, 8 + bg, 1);
 				if (!bg_en || SB_BFE(window_control, bg, 1) == 0)
 					continue;
+
+				UINT16 pipeline_bgcnt = gba_io_read16(gba, GBA_BG0CNT + bg * 2);
+				INT32 source_x = lcd_x;
+				if (SB_BFE(pipeline_bgcnt, 6, 1)) {
+					INT32 mosaic_x = SB_BFE(gba_io_read16(gba, GBA_MOSAIC), 0, 4) + 1;
+					source_x -= source_x % mosaic_x;
+				}
+				UINT32 pipeline_pixel = gba->ppu.bg.buffer[source_x][bg];
+				if (pipeline_pixel != 0) {
+					if (pipeline_pixel & 0x80000000u)
+						col = pipeline_pixel & 0xffff;
+					else
+						col = *(UINT16*)(gba->mem.palette + GBA_BG_PALETTE + pipeline_pixel * 2);
+					INT32 priority = SB_BFE(pipeline_bgcnt, 0, 2);
+					col |= (bg << 17) | ((5 - priority) << 28) | ((4 - bg) << 25);
+					if (col > gba->first_target_buffer[lcd_x]) {
+						UINT32 t = gba->first_target_buffer[lcd_x];
+						gba->first_target_buffer[lcd_x] = col;
+						col = t;
+					}
+					if (col > gba->second_target_buffer[lcd_x])
+						gba->second_target_buffer[lcd_x] = col;
+				}
+				continue;
 
 				bool   rot_scale = bg_mode >= 1 && bg >= 2;
 				UINT16 bgcnt = gba_io_read16(gba, GBA_BG0CNT + bg * 2);
@@ -3051,6 +3742,7 @@ evy = 1;
 			gba->framebuffer[p + 1] = g * 8 * (1.0 - screen_blend_factor) + gba->framebuffer[p + 1] * screen_blend_factor;
 		}
 	}
+#endif
 }
 
 static void gba_tick_keypad(sb_joy_t* joy, gba_t* gba)
