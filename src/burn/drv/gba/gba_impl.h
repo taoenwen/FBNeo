@@ -695,6 +695,56 @@ typedef struct {
 	bool   video_dma_active;
 } gba_dma_t;
 
+// OBJ pixel double-buffer layout, matching NanoBoyAdvance's Sprite::Pixel packing.
+#define GBA_OBJ_PIXEL_COLOR(p)    ((p) & 0xff)
+#define GBA_OBJ_PIXEL_PRIORITY(p) SB_BFE((p), 8, 2)
+#define GBA_OBJ_PIXEL_ALPHA(p)    SB_BFE((p), 10, 1)
+#define GBA_OBJ_PIXEL_WINDOW(p)   SB_BFE((p), 11, 1)
+#define GBA_OBJ_PIXEL_MOSAIC(p)   SB_BFE((p), 12, 1)
+
+typedef struct {
+	INT32 width;
+	INT32 height;
+	INT32 mode;
+	INT32 draw_x;
+	INT32 remaining_pixels;
+	INT32 texture_x;
+	INT32 texture_y;
+	INT32 matrix[4];
+	INT32 tile_number;
+	INT32 priority;
+	INT32 palette;
+	bool  mosaic;
+	bool  affine;
+	bool  flip_h;
+	bool  is_256;
+} gba_obj_drawer_t;
+
+typedef struct {
+	INT32 cycle;
+	INT32 cycle_limit;
+	INT32 target_line;
+	INT32 epoch_line;
+	INT32 mosaic_y;
+	INT32 last_sync;
+	bool  active;
+	INT32 oam_index;
+	INT32 oam_step;
+	INT32 oam_wait;
+	INT32 oam_pending_wait;
+	bool  oam_delay_wait;
+	INT32 initial_local_x;
+	INT32 initial_local_y;
+	INT32 matrix_address;
+	bool  drawing;
+	INT32 state_rd;
+	INT32 state_wr;
+	gba_obj_drawer_t drawer[2];
+	UINT16 buffer[2][240];
+	INT32  buf_rd;
+	INT32  buf_wr;
+} gba_obj_engine_t;
+
 typedef struct {
 	INT32  scan_clock;
 	bool   last_vblank;
@@ -712,6 +762,10 @@ typedef struct {
 	INT32  fast_forward_ticks;
 	float  ghosting_strength;
 	UINT32 mosaic_y_counter;
+	UINT32 bg_mosaic_y_counter;
+	gba_obj_engine_t obj;
+	UINT16 obj_mosaic_latch;
+	INT32  obj_mosaic_x;
 } gba_ppu_t;
 
 typedef struct {
@@ -1081,6 +1135,7 @@ static FORCE_INLINE UINT16 gba_gpio_read16(gba_t* gba, UINT32 address)
 // Returns a pointer to the data backing the baddr (when not DWORD aligned, it
 // ignores the lowest 2 bits.
 static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 baddr, INT32 req_type);
+static void gba_obj_sync(gba_t* gba);
 static FORCE_INLINE UINT32 gba_read32(gba_t* gba, UINT32 baddr)
 {
 	if (gba_gpio_address(gba, baddr)) {
@@ -1382,8 +1437,16 @@ static FORCE_INLINE void gba_gpio_write16(gba_t* gba, UINT32 address, UINT16 dat
 	}
 }
 
+static FORCE_INLINE void gba_obj_write_sync(gba_t* gba, UINT32 baddr)
+{
+	UINT32 region = baddr >> 24;
+	if (region >= 0x5 && region <= 0x7)
+		gba_obj_sync(gba);
+}
+
 static FORCE_INLINE void gba_store32(gba_t* gba, UINT32 baddr, UINT32 data)
 {
+	gba_obj_write_sync(gba, baddr);
 	if (baddr >= 0x08000000) {
 		//Mask is 0xfe to catch the sram mirror at 0x0f and 0x0e
 		if ((baddr & 0xfe000000) == 0xE000000) {
@@ -1401,6 +1464,7 @@ static FORCE_INLINE void gba_store32(gba_t* gba, UINT32 baddr, UINT32 data)
 
 static FORCE_INLINE void gba_store16(gba_t* gba, UINT32 baddr, UINT32 data)
 {
+	gba_obj_write_sync(gba, baddr);
 	if (baddr >= 0x08000000) {
 		//Mask is 0xfe to catch the sram mirror at 0x0f and 0x0e
 		if ((baddr & 0xfe000000) == 0xE000000) {
@@ -1419,6 +1483,7 @@ static FORCE_INLINE void gba_store16(gba_t* gba, UINT32 baddr, UINT32 data)
 
 static FORCE_INLINE void gba_store8(gba_t* gba, UINT32 baddr, UINT32 data)
 {
+	gba_obj_write_sync(gba, baddr);
 	if (baddr >= 0x05000000) {
 		// 8 bit stores to palette mirror across 8 bit halves
 		if ((baddr & 0xff000000) == 0x5000000) {
@@ -1496,6 +1561,373 @@ static FORCE_INLINE UINT32 gba_io_read32(gba_t* gba, UINT32 baddr)
 {
 	return *(UINT32*)(gba->mem.io + (baddr & 0xfff));
 }
+
+// Persistent per-cycle OBJ pipeline, ported from NanoBoyAdvance sprite.cc.
+// OAM scanner + VRAM drawer advance one slot per 2 master clocks; attributes,
+// matrix and texels latch at their own fetch cycle so mid-scanline writes land
+// correctly. NBA's open questions (live OBJ enable freeze, forced blank, 1D/2D
+// mapping latch, exact cycle limit) are kept as-is, not hardware-proven.
+
+#define GBA_OBJ_MODE_NORMAL     0
+#define GBA_OBJ_MODE_SEMI       1
+#define GBA_OBJ_MODE_WINDOW     2
+#define GBA_OBJ_MODE_PROHIBITED 3
+
+static void gba_obj_begin_line(gba_t* gba, INT32 target_line)
+{
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	obj->target_line = target_line;
+	obj->cycle = 0;
+	obj->cycle_limit = SB_BFE(dispcnt, 5, 1) ? 964 : 1232;
+	obj->mosaic_y = gba->ppu.mosaic_y_counter;
+	obj->active = true;
+	obj->oam_index = 0;
+	obj->oam_step = 0;
+	obj->oam_wait = 0;
+	obj->oam_delay_wait = false;
+	obj->drawing = false;
+	obj->state_rd = 0;
+	obj->state_wr = 1;
+	memset(obj->buffer[obj->buf_wr], 0, sizeof(obj->buffer[obj->buf_wr]));
+}
+
+// Epoch boundary = physical scanline transition. The engine spends line N
+// producing line N+1's buffer, which is swapped in at the start of line N+1.
+static void gba_obj_epoch_boundary(gba_t* gba)
+{
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	obj->epoch_line = (obj->epoch_line + 1) % 228;
+	INT32 line = obj->epoch_line;
+	if (line < 160 || line == 227) {
+		obj->buf_rd ^= 1;
+		obj->buf_wr ^= 1;
+		if (line != 159) {
+			INT32 next = (line == 227) ? 0 : line + 1;
+			gba_obj_begin_line(gba, next);
+		} else {
+			obj->active = false;
+		}
+	}
+}
+
+static FORCE_INLINE INT32 gba_obj_vram_boundary(gba_t* gba)
+{
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	INT32 bg_mode = SB_BFE(dispcnt, 0, 3);
+	return (bg_mode >= 3 && bg_mode <= 5) ? 0x14000 : 0x10000;
+}
+
+static FORCE_INLINE void gba_obj_plot(gba_t* gba, INT32 x, UINT32 color_index)
+{
+	if (x < 0 || x >= 240)
+		return;
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	gba_obj_drawer_t* dr = &obj->drawer[obj->state_rd];
+	UINT16* pixel = &obj->buffer[obj->buf_wr][x];
+	bool opaque = color_index != 0;
+	if (dr->mode == GBA_OBJ_MODE_WINDOW && opaque) {
+		*pixel |= 1 << 11;
+	} else if (dr->priority < GBA_OBJ_PIXEL_PRIORITY(*pixel) || GBA_OBJ_PIXEL_COLOR(*pixel) == 0) {
+		if (opaque) {
+			*pixel = (*pixel & ~0xff) | (color_index & 0xff);
+			if (dr->mode == GBA_OBJ_MODE_SEMI)
+				*pixel |= 1 << 10;
+			else
+				*pixel &= ~(1 << 10);
+		}
+		if (dr->mosaic)
+			*pixel |= 1 << 12;
+		else
+			*pixel &= ~(1 << 12);
+		*pixel = (*pixel & ~(3 << 8)) | ((dr->priority & 3) << 8);
+	}
+}
+
+static void gba_obj_fetch_vram(gba_t* gba)
+{
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	if (!obj->drawing)
+		return;
+	gba_obj_drawer_t* dr = &obj->drawer[obj->state_rd];
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	bool map_1d = SB_BFE(dispcnt, 6, 1);
+	INT32 boundary = gba_obj_vram_boundary(gba);
+	INT32 width = dr->width;
+	INT32 height = dr->height;
+	UINT32 base_tile = dr->tile_number;
+
+	if (dr->affine) {
+		if (obj->oam_delay_wait)
+			return;
+		INT32 texture_x = dr->texture_x >> 8;
+		INT32 texture_y = dr->texture_y >> 8;
+		if (texture_x >= 0 && texture_x < width && texture_y >= 0 && texture_y < height) {
+			INT32 tile_x = texture_x & 7;
+			INT32 tile_y = texture_y & 7;
+			INT32 block_x = texture_x >> 3;
+			INT32 block_y = texture_y >> 3;
+			UINT32 color_index = 0;
+			if (dr->is_256) {
+				UINT32 tile;
+				if (map_1d)
+					tile = (base_tile + block_y * ((UINT32)width >> 2) + (block_x << 1)) & 0x3ff;
+				else
+					tile = ((base_tile + (block_y << 5)) & 0x3e0) | (((base_tile & ~1) + (block_x << 1)) & 0x1f);
+				UINT32 address = 0x10000 + (tile << 5) + (tile_y << 3) + tile_x;
+				if (address >= (UINT32)boundary)
+					color_index = gba->mem.vram[address];
+			} else {
+				UINT32 tile;
+				if (map_1d)
+					tile = (base_tile + block_y * ((UINT32)width >> 3) + block_x) & 0x3ff;
+				else
+					tile = ((base_tile + (block_y << 5)) & 0x3e0) | ((base_tile + block_x) & 0x1f);
+				UINT32 address = 0x10000 + (tile << 5) + (tile_y << 2) + (tile_x >> 1);
+				if (address >= (UINT32)boundary) {
+					UINT8 data = gba->mem.vram[address];
+					color_index = (tile_x & 1) ? (data >> 4) : (data & 15);
+					if (color_index > 0)
+						color_index |= dr->palette << 4;
+				}
+			}
+			gba_obj_plot(gba, dr->draw_x, color_index);
+		}
+		dr->draw_x++;
+		dr->texture_x += dr->matrix[0];
+		dr->texture_y += dr->matrix[2];
+		if (--dr->remaining_pixels == 0)
+			obj->drawing = false;
+	} else {
+		INT32 texture_x = dr->texture_x ^ (dr->flip_h ? (width - 1) : 0);
+		INT32 texture_y = dr->texture_y;
+		INT32 tile_x = texture_x & 7 & ~1;
+		INT32 tile_y = texture_y & 7;
+		INT32 block_x = texture_x >> 3;
+		INT32 block_y = texture_y >> 3;
+		UINT32 palette;
+		UINT32 color_index[2] = { 0, 0 };
+		if (dr->is_256) {
+			UINT32 tile;
+			if (map_1d)
+				tile = (base_tile + block_y * ((UINT32)width >> 2) + (block_x << 1)) & 0x3ff;
+			else
+				tile = ((base_tile + (block_y << 5)) & 0x3e0) | (((base_tile & ~1) + (block_x << 1)) & 0x1f);
+			UINT32 address = 0x10000 + (tile << 5) + (tile_y << 3) + tile_x;
+			UINT16 data = 0;
+			if (address >= (UINT32)boundary)
+				data = *(UINT16*)(gba->mem.vram + address);
+			if (dr->flip_h) {
+				color_index[0] = data >> 8;
+				color_index[1] = data & 0xff;
+			} else {
+				color_index[0] = data & 0xff;
+				color_index[1] = data >> 8;
+			}
+			palette = 0;
+		} else {
+			UINT32 tile;
+			if (map_1d)
+				tile = (base_tile + block_y * ((UINT32)width >> 3) + block_x) & 0x3ff;
+			else
+				tile = ((base_tile + (block_y << 5)) & 0x3e0) | ((base_tile + block_x) & 0x1f);
+			UINT32 address = 0x10000 + (tile << 5) + (tile_y << 2) + (tile_x >> 1);
+			UINT8 data = 0;
+			if (address >= (UINT32)boundary)
+				data = gba->mem.vram[address];
+			if (dr->flip_h) {
+				color_index[0] = data >> 4;
+				color_index[1] = data & 15;
+			} else {
+				color_index[0] = data & 15;
+				color_index[1] = data >> 4;
+			}
+			palette = dr->palette << 4;
+		}
+		for (INT32 i = 0; i < 2; i++) {
+			UINT32 ci = color_index[i];
+			if (ci > 0)
+				ci |= palette;
+			gba_obj_plot(gba, dr->draw_x++, ci);
+		}
+		dr->texture_x += 2;
+		dr->remaining_pixels -= 2;
+		if (dr->remaining_pixels == 0)
+			obj->drawing = false;
+	}
+}
+
+static void gba_obj_fetch_oam(gba_t* gba)
+{
+	static const INT32 size_lut[4][4][2] = {
+		{ { 8 , 8  }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+		{ { 16, 8  }, { 32, 8  }, { 32, 16 }, { 64, 32 } },
+		{ { 8 , 16 }, { 8 , 32 }, { 16, 32 }, { 32, 64 } },
+		{ { 8 , 8  }, { 8 , 8  }, { 8 , 8  }, { 8 , 8  } }
+	};
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	if (obj->oam_wait > 0 && !obj->oam_delay_wait) {
+		obj->oam_wait--;
+		return;
+	}
+	obj->oam_delay_wait = false;
+	gba_obj_drawer_t* dr = &obj->drawer[obj->state_wr];
+	INT32 step = obj->oam_step;
+
+	if (step == 0) {
+		if (obj->oam_index >= 128) {
+			obj->oam_step = 6;
+			return;
+		}
+		UINT32 attr01 = *(UINT32*)(gba->mem.oam + obj->oam_index * 8);
+		bool active = false;
+		if ((attr01 & 0x300) != 0x200) {
+			INT32 mode = SB_BFE(attr01, 10, 2);
+			if (mode != GBA_OBJ_MODE_PROHIBITED) {
+				INT32 x = SB_BFE(attr01, 16, 9);
+				INT32 y = attr01 & 0xff;
+				if (x >= 240) x -= 512;
+				INT32 shape = SB_BFE(attr01, 14, 2);
+				INT32 size = SB_BFE(attr01, 30, 2);
+				INT32 width = size_lut[shape][size][0];
+				INT32 height = size_lut[shape][size][1];
+				INT32 half_width = width >> 1;
+				INT32 half_height = height >> 1;
+				bool affine = SB_BFE(attr01, 8, 1);
+				if (affine && SB_BFE(attr01, 9, 1)) {
+					half_width *= 2;
+					half_height *= 2;
+				}
+				INT32 vcount = obj->target_line;
+				INT32 y_max = (y + half_height * 2) & 255;
+				if ((vcount >= y || y_max < y) && vcount < y_max) {
+					bool mosaic = SB_BFE(attr01, 12, 1) && mode != GBA_OBJ_MODE_WINDOW;
+					dr->width = width;
+					dr->height = height;
+					dr->mode = mode;
+					dr->mosaic = mosaic;
+					dr->affine = affine;
+					dr->draw_x = x;
+					dr->remaining_pixels = half_width << 1;
+					dr->is_256 = SB_BFE(attr01, 13, 1);
+					INT32 local_y = (vcount - y) & 255;
+					if (mosaic) {
+						local_y -= obj->mosaic_y;
+						if (local_y < 0) local_y = 0;
+					}
+					if (!affine) {
+						bool flip_v = SB_BFE(attr01, 29, 1);
+						dr->flip_h = SB_BFE(attr01, 28, 1);
+						dr->texture_x = 0;
+						dr->texture_y = local_y;
+						if (flip_v)
+							dr->texture_y ^= height - 1;
+						obj->oam_pending_wait = half_width - 2;
+					} else {
+						obj->initial_local_x = -half_width;
+						obj->initial_local_y = local_y - half_height;
+						obj->oam_pending_wait = half_width * 2 - 1;
+						obj->matrix_address = (SB_BFE(attr01, 25, 5) * 32) + 6;
+					}
+					active = true;
+					if (x < 0) {
+						INT32 clip = (-x) & (affine ? ~0 : ~1);
+						dr->draw_x += clip;
+						dr->remaining_pixels -= clip;
+						if (affine) {
+							obj->oam_pending_wait -= clip;
+							obj->initial_local_x += clip;
+						} else {
+							obj->oam_pending_wait -= clip >> 1;
+							dr->texture_x += clip;
+						}
+						if (dr->remaining_pixels <= 0)
+							active = false;
+					}
+				}
+			}
+		}
+		if (active)
+			obj->oam_step = 1;
+		else
+			obj->oam_index++;
+	} else if (step == 1) {
+		UINT16 attr2 = *(UINT16*)(gba->mem.oam + obj->oam_index * 8 + 4);
+		dr->tile_number = attr2 & 0x3ff;
+		dr->priority = SB_BFE(attr2, 10, 2);
+		dr->palette = SB_BFE(attr2, 12, 4);
+		if (dr->affine) {
+			obj->oam_step = 2;
+		} else {
+			obj->state_rd ^= 1;
+			obj->state_wr ^= 1;
+			obj->drawing = true;
+			obj->oam_index++;
+			obj->oam_step = 0;
+			obj->oam_wait = obj->oam_pending_wait;
+			obj->oam_delay_wait = true;
+		}
+	} else if (step >= 2 && step <= 5) {
+		dr->matrix[step - 2] = *(INT16*)(gba->mem.oam + obj->matrix_address);
+		obj->matrix_address += 8;
+		if (++obj->oam_step == 6) {
+			INT32 x0 = obj->initial_local_x;
+			INT32 y0 = obj->initial_local_y;
+			dr->texture_x = dr->matrix[0] * x0 + dr->matrix[1] * y0 + (dr->width << 7);
+			dr->texture_y = dr->matrix[2] * x0 + dr->matrix[3] * y0 + (dr->height << 7);
+			obj->state_rd ^= 1;
+			obj->state_wr ^= 1;
+			obj->drawing = true;
+			obj->oam_index++;
+			obj->oam_step = 0;
+			obj->oam_wait = obj->oam_pending_wait;
+			obj->oam_delay_wait = true;
+		}
+	}
+}
+
+// Advance the OBJ pipeline to the committed master clock. Called each
+// gba_tick_ppu and before any OAM/VRAM/PRAM/PPU-MMIO write commits.
+static void gba_obj_sync(gba_t* gba)
+{
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	INT32 committed = gba->ppu.scan_clock - gba->ppu.fast_forward_ticks;
+	committed = ((committed % 280896) + 280896) % 280896;
+	INT32 delta = committed - obj->last_sync;
+	if (delta < 0)
+		delta += 280896;
+	if (delta <= 0)
+		return;
+	obj->last_sync = committed;
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	bool obj_enable = SB_BFE(dispcnt, 12, 1);
+	while (delta-- > 0) {
+		INT32 cycle = obj->cycle;
+		if (obj->active && cycle < obj->cycle_limit) {
+			if (obj_enable && (cycle & 1) == 0) {
+				gba_obj_fetch_vram(gba);
+				gba_obj_fetch_oam(gba);
+			}
+			if (cycle == 1192) {
+				UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
+				INT32 size_y = SB_BFE(mos_reg, 12, 4) + 1;
+				if (obj->target_line < 159) {
+					if (++gba->ppu.mosaic_y_counter == (UINT32)size_y)
+						gba->ppu.mosaic_y_counter = 0;
+					else
+						gba->ppu.mosaic_y_counter &= 15;
+				} else {
+					gba->ppu.mosaic_y_counter = 0;
+				}
+			}
+		}
+		if (++obj->cycle >= 1232) {
+			obj->cycle = 0;
+			gba_obj_epoch_boundary(gba);
+		}
+	}
+}
+
 
 static FORCE_INLINE void gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcnt)
 {
@@ -1895,6 +2327,7 @@ static FORCE_INLINE void gba_process_mmio_read(gba_t* gba, UINT32 address)
 
 static bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT32 req_size_bytes)
 {
+	gba_obj_sync(gba);
 	UINT32 address_u32 = address & ~3;
 	UINT32 word_mask   = 0xffffffff;
 	UINT32 word_data   = data;
@@ -2153,6 +2586,11 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 		gba->cpu.registers[PC  ] = 0x00000000;
 		gba->cpu.registers[CPSR] = 0x000000d3;
 	}
+	gba->ppu.obj.buf_rd = 0;
+	gba->ppu.obj.buf_wr = 1;
+	gba->ppu.obj.epoch_line = 0;
+	gba->ppu.obj.last_sync = 0;
+	gba_obj_begin_line(gba, 1);
 	if (gba->cpu.log_cmp_file) {
 		fclose(gba->cpu.log_cmp_file);
 		gba->cpu.log_cmp_file = NULL;
@@ -2182,8 +2620,67 @@ static FORCE_INLINE INT32 gba_ppu_compute_max_fast_forward(gba_t* gba, bool rend
 	return 3 - ((gba->ppu.scan_clock) % 4);
 }
 
+// Merge one OBJ line-buffer pixel: horizontal mosaic latch, per-pixel window,
+// seed first_target.
+static UINT8 gba_obj_merge_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
+{
+	gba_obj_engine_t* obj = &gba->ppu.obj;
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	if (lcd_x == 0) {
+		gba->ppu.obj_mosaic_latch = 0;
+		gba->ppu.obj_mosaic_x = 0;
+	}
+
+	UINT16 raw = SB_BFE(dispcnt, 12, 1) ? obj->buffer[obj->buf_rd][lcd_x] : 0;
+	UINT16 latch = gba->ppu.obj_mosaic_latch;
+	if (!GBA_OBJ_PIXEL_MOSAIC(raw) || !GBA_OBJ_PIXEL_MOSAIC(latch) ||
+		GBA_OBJ_PIXEL_PRIORITY(raw) < GBA_OBJ_PIXEL_PRIORITY(latch) || gba->ppu.obj_mosaic_x == 0)
+		latch = raw;
+	gba->ppu.obj_mosaic_latch = latch;
+	UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
+	if (++gba->ppu.obj_mosaic_x >= SB_BFE(mos_reg, 8, 4) + 1)
+		gba->ppu.obj_mosaic_x = 0;
+
+	UINT8 window_control = 0x3f;
+	if (SB_BFE(dispcnt, 13, 3) != 0) {
+		UINT16 winout = gba_io_read16(gba, GBA_WINOUT);
+		window_control = SB_BFE(winout, 0, 8);
+		if (SB_BFE(dispcnt, 15, 1) && GBA_OBJ_PIXEL_WINDOW(raw))
+			window_control = SB_BFE(winout, 8, 6);
+		UINT16 winin = gba_io_read16(gba, GBA_WININ);
+		for (INT32 win = 1; win >= 0; --win) {
+			if (!SB_BFE(dispcnt, 13 + win, 1))
+				continue;
+			UINT16 winh = gba_io_read16(gba, GBA_WIN0H + 2 * win);
+			UINT16 winv = gba_io_read16(gba, GBA_WIN0V + 2 * win);
+			INT32 xmin = SB_BFE(winh, 8, 8), xmax = SB_BFE(winh, 0, 8);
+			INT32 ymin = SB_BFE(winv, 8, 8), ymax = SB_BFE(winv, 0, 8);
+			if (xmin > xmax) xmax = 240;
+			if (ymin > ymax) ymax = 161;
+			if (xmax > 240) xmax = 240;
+			if (lcd_y < ymin || lcd_y >= ymax || lcd_x < xmin || lcd_x >= xmax)
+				continue;
+			window_control = SB_BFE(winin, win * 8, 6);
+		}
+	}
+
+	UINT32 backdrop_col = (*(UINT16*)(gba->mem.palette + GBA_BG_PALETTE)) | (5u << 17);
+	UINT32 col = backdrop_col;
+	INT32 color_index = GBA_OBJ_PIXEL_COLOR(latch);
+	if (color_index != 0 && SB_BFE(window_control, 4, 1)) {
+		UINT32 rgb = *(UINT16*)(gba->mem.palette + GBA_OBJ_PALETTE + color_index * 2);
+		INT32 priority = GBA_OBJ_PIXEL_PRIORITY(latch);
+		col = rgb | (4u << 17) | (((UINT32)(5 - priority)) << 28) | (0x7u << 25);
+		if (GBA_OBJ_PIXEL_ALPHA(latch))
+			col |= 1 << 16;
+	}
+	gba->first_target_buffer[lcd_x] = col;
+	return window_control;
+}
+
 static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 {
+	gba_obj_sync(gba);
 	if (SB_LIKELY(gba->ppu.fast_forward_ticks > 0)) {
 		gba->ppu.fast_forward_ticks--;
 		return;
@@ -2192,6 +2689,7 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 	if (gba->ppu.scan_clock >= 280896) gba->ppu.scan_clock -= 280896;
 	INT32 lcd_y = (gba->ppu.scan_clock) / 1232;
 	INT32 lcd_x = ((gba->ppu.scan_clock) % 1232) / 4;
+	UINT16 affine_dispcnt_latch = gba->ppu.dispcnt_pipeline[0];
 	gba->ppu.scan_clock++;
 	gba->ppu.fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render) + 1;
 	gba->ppu.scan_clock += gba->ppu.fast_forward_ticks;
@@ -2242,28 +2740,35 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 	if (!render)
 		return;
 
-	if (lcd_x == GBA_LCD_HBLANK_START) {
-		UINT16 dispcnt = gba->ppu.dispcnt_pipeline[0];
-		INT32  bg_mode = SB_BFE(dispcnt, 0, 3);
-		if (bg_mode != 0) {
-			for (INT32 aff = 0; aff < 2; ++aff) {
-				bool bg_en = SB_BFE(dispcnt, 8 + aff + 2, 1);
-				if (!bg_en) continue;
-				INT32 b = (INT16)gba_io_read16(gba, GBA_BG2PB  + (aff) * 0x10);
-				INT32 d = (INT16)gba_io_read16(gba, GBA_BG2PD  + (aff) * 0x10);
-				UINT16 bgcnt =     gba_io_read16(gba, GBA_BG2CNT +  aff  * 2);
-				bool mosaic = SB_BFE(bgcnt, 6, 1);
-				if (mosaic) {
-					UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
-					INT32  mos_y   = SB_BFE(mos_reg, 4, 4) + 1;
-					if ((lcd_y % mos_y) == 0) {
-						gba->ppu.aff[aff].render_bgx += b * mos_y;
-						gba->ppu.aff[aff].render_bgy += d * mos_y;
-					}
-				} else {
-					gba->ppu.aff[aff].render_bgx += b;
-					gba->ppu.aff[aff].render_bgy += d;
+	if (lcd_x == GBA_LCD_HBLANK_END) {
+		if (lcd_y < 159) {
+			UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
+			INT32 mos_y = SB_BFE(mos_reg, 4, 4) + 1;
+			if (++gba->ppu.bg_mosaic_y_counter >= (UINT32)mos_y)
+				gba->ppu.bg_mosaic_y_counter = 0;
+		} else {
+			gba->ppu.bg_mosaic_y_counter = 0;
+		}
+
+		UINT16 dispcnt = affine_dispcnt_latch & gba_io_read16(gba, GBA_DISPCNT);
+		INT32 bg_mode = SB_BFE(dispcnt, 0, 3);
+		for (INT32 aff = 0; aff < 2; ++aff) {
+			bool mode_has_bg = aff == 0 ? bg_mode >= 1 && bg_mode <= 5 : bg_mode == 2;
+			bool bg_en = mode_has_bg && SB_BFE(dispcnt, 10 + aff, 1);
+			if (!bg_en) continue;
+			INT32 b = (INT16)gba_io_read16(gba, GBA_BG2PB + aff * 0x10);
+			INT32 d = (INT16)gba_io_read16(gba, GBA_BG2PD + aff * 0x10);
+			UINT16 bgcnt = gba_io_read16(gba, GBA_BG2CNT + aff * 2);
+			if (SB_BFE(bgcnt, 6, 1)) {
+				UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
+				INT32 mos_y = SB_BFE(mos_reg, 4, 4) + 1;
+				if (gba->ppu.bg_mosaic_y_counter == 0) {
+					gba->ppu.aff[aff].render_bgx += b * mos_y;
+					gba->ppu.aff[aff].render_bgy += d * mos_y;
 				}
+			} else {
+				gba->ppu.aff[aff].render_bgx += b;
+				gba->ppu.aff[aff].render_bgy += d;
 			}
 		}
 	}
@@ -2287,228 +2792,10 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 	}
 	UINT16 dispcnt         = gba_io_read16(gba, GBA_DISPCNT);
 	INT32  bg_mode         = SB_BFE(dispcnt, 0, 3);
-	INT32  obj_vram_map_2d = !SB_BFE(dispcnt, 6, 1);
 	INT32  forced_blank    = SB_BFE(dispcnt, 7, 1);
 	bool visible = lcd_x < 240 && lcd_y < 160;
-	//Render sprites over scanline when it completes
-	if ((lcd_y < 159 || lcd_y == 227) && lcd_x == GBA_LCD_HBLANK_START) {
-		INT32  sprite_lcd_y = (lcd_y + 1) % 228;
-		UINT16 mos_reg      = gba_io_read16(gba, GBA_MOSAIC);
-		INT32  mos_y        = SB_BFE(mos_reg, 12, 4) + 1;
-		// Partial fix to https://github.com/skylersaleh/SkyEmu/issues/316
-		if (++gba->ppu.mosaic_y_counter >= mos_y || sprite_lcd_y == 0) {
-			gba->ppu.mosaic_y_counter = 0;
-		}
-		//Render sprites over scanline when it completes
-		UINT8 default_window_control = 0x3f;	//bitfield [0-3:bg0-bg3 enable 4:obj enable, 5: special effect enable]
-		bool winout_enable = SB_BFE(dispcnt, 13, 3) != 0;
-		UINT16 WINOUT      = gba_io_read16(gba, GBA_WINOUT);
-		if (winout_enable)
-			default_window_control = SB_BFE(WINOUT, 0, 8);
-
-		for (INT32 x = 0; x < 240; ++x) {
-			gba->window[x] = default_window_control;
-		}
-		UINT8 obj_window_control = default_window_control;
-		bool  obj_window_enable  = SB_BFE(dispcnt, 15, 1);
-		if (obj_window_enable)
-			obj_window_control   = SB_BFE(WINOUT, 8, 6);
-		bool  display_obj        = SB_BFE(dispcnt, 12, 1);
-		if (display_obj) {
-			INT32 sprite_cycles  = SB_BFE(dispcnt, 5, 1) ? 954 : 1210;
-			for (INT32 o = 0; o < 128; ++o) {
-				UINT16 attr0 = *(UINT16*)(gba->mem.oam + o * 8 + 0);
-				//Attr0
-				UINT8 y_coord     = SB_BFE(attr0, 0, 8);
-				bool  rot_scale   = SB_BFE(attr0, 8, 1);
-				bool  double_size = SB_BFE(attr0, 9, 1) && rot_scale;
-				bool  obj_disable = SB_BFE(attr0, 9, 1) && !rot_scale;
-				if (obj_disable)
-					continue;
-
-				INT32  obj_mode   = SB_BFE(attr0, 10, 2);		//(0=Normal, 1=Semi-Transparent, 2=OBJ Window, 3=Prohibited)
-				bool   mosaic     = SB_BFE(attr0, 12, 1);
-				bool   colors_or_palettes = SB_BFE(attr0, 13, 1);
-				INT32  obj_shape  = SB_BFE(attr0, 14, 2);	//(0=Square,1=Horizontal,2=Vertical,3=Prohibited)
-				UINT16 attr1 = *(UINT16*)(gba->mem.oam + o * 8 + 2);
-
-				INT32 rotscale_param = SB_BFE(attr1,  9, 5);
-				bool  h_flip         = SB_BFE(attr1, 12, 1) && !rot_scale;
-				bool  v_flip         = SB_BFE(attr1, 13, 1) && !rot_scale;
-				INT32 obj_size       = SB_BFE(attr1, 14, 2);
-				// Size  Square   Horizontal  Vertical
-				// 0     8x8      16x8        8x16
-				// 1     16x16    32x8        8x32
-				// 2     32x32    32x16       16x32
-				// 3     64x64    64x32       32x64
-				const INT32 xsize_lookup[16] = {
-					 8,16, 8, 0,
-					16,32, 8, 0,
-					32,32,16, 0,
-					64,64,32, 0
-				};
-				const INT32 ysize_lookup[16] = {
-					 8, 8,16, 0,
-					16, 8,32, 0,
-					32,16,32, 0,
-					64,32,64, 0
-				};
-
-				INT32 y_size = ysize_lookup[obj_size * 4 + obj_shape];
-
-				if (((sprite_lcd_y - y_coord) & 0xff) < y_size * (double_size ? 2 : 1)) {
-					INT16 x_coord = SB_BFE(attr1, 0, 9);
-					if (SB_BFE(x_coord, 8, 1))
-						x_coord |= 0xfe00;
-
-					INT32 x_size  = xsize_lookup[obj_size * 4 + obj_shape];
-					if (rot_scale)
-						sprite_cycles -= 10 + (x_size << double_size) * 2;
-					else
-						sprite_cycles -= x_size;
-					if (sprite_cycles <= 0)
-						break;
-					INT32 x_start = x_coord >= 0 ? x_coord : 0;
-					INT32 x_end   = x_coord + x_size * (double_size ? 2 : 1);
-					if (x_end >= 240)x_end = 240;
-					//Attr2
-					//Skip objects disabled by window
-					UINT16 attr2 = *(UINT16*)(gba->mem.oam + o * 8 + 4);
-					INT32  tile_base = SB_BFE(attr2,  0, 10);
-					// Always place sprites as the highest priority
-					INT32  priority  = SB_BFE(attr2, 10,  2);
-					INT32  palette   = SB_BFE(attr2, 12,  4);
-					for (INT32 x = x_start; x < x_end; ++x) {
-						INT32 sx = (x - x_coord);
-						INT32 sy = (sprite_lcd_y - y_coord) & 0xff;
-						if (mosaic) {
-							UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
-							INT32  mos_x = SB_BFE(mos_reg,  8, 4) + 1;
-							INT32  mos_y = SB_BFE(mos_reg, 12, 4) + 1;
-							sx = ((x / mos_x) * mos_x - x_coord);
-							if (sx < 0)
-								sx = 0;
-							sy = (sprite_lcd_y - y_coord) & 0xff;
-							sy -= gba->ppu.mosaic_y_counter;
-							if (sy < 0) {
-								sy = 0;
-							}
-						}
-						if (rot_scale) {
-							UINT32 param_base = rotscale_param * 0x20;
-							INT32 a = *(INT16*)(gba->mem.oam + param_base + 0x6);
-							INT32 b = *(INT16*)(gba->mem.oam + param_base + 0xe);
-							INT32 c = *(INT16*)(gba->mem.oam + param_base + 0x16);
-							INT32 d = *(INT16*)(gba->mem.oam + param_base + 0x1e);
-
-							INT64 x1 = sx << 8;
-							INT64 y1 = sy << 8;
-							INT64 objref_x = (x_size << (double_size ? 8 : 7));
-							INT64 objref_y = (y_size << (double_size ? 8 : 7));
-
-							INT64 x2 = a * (x1 - objref_x) + b * (y1 - objref_y) + (x_size << 15);
-							INT64 y2 = c * (x1 - objref_x) + d * (y1 - objref_y) + (y_size << 15);
-
-							sx = (x2 >> 16);
-							sy = (y2 >> 16);
-							if (sx >= x_size || sy >= y_size || sx < 0 || sy < 0)
-								continue;
-						} else {
-							if (h_flip)
-								sx = x_size - sx - 1;
-							if (v_flip)
-								sy = y_size - sy - 1;
-						}
-						INT32 tx = sx % 8;
-						INT32 ty = sy % 8;
-
-						INT32 tile_step = colors_or_palettes ? 2 : 1;
-						INT32 tile;
-						if (obj_vram_map_2d) {
-							INT32 base = colors_or_palettes ? tile_base & ~1 : tile_base;
-							tile  = (base + (sx / 8) * tile_step) & 0x1f;
-							tile |= (base + (sy / 8) * 32       ) & 0x3e0;
-						} else {
-							tile  = (tile_base + (sx / 8) * tile_step + (sy / 8) * (x_size / 8) * tile_step) & 0x3ff;
-						}
-						//Tiles >511 are not rendered in bg_mode3-5 since that memory is used to store the bitmap graphics.
-						if (tile < 512 && bg_mode >= 3 && bg_mode <= 5)
-							continue;
-						UINT8 palette_id;
-						INT32 obj_tile_base = GBA_OBJ_TILES0_2;
-						bool transparent = false;
-						if (colors_or_palettes == false) {
-							INT32 offset = (tile * 32 + tx / 2 + ty * 4) & 0x7fff;
-							palette_id   = gba->mem.vram[obj_tile_base + offset];
-							palette_id   = (palette_id >> ((tx & 1) * 4)) & 0xf;
-							transparent  =  palette_id == 0;
-							palette_id  +=  palette * 16;
-						} else {
-							INT32 offset = (tile * 32 + tx + ty * 8) & 0x7fff;
-							palette_id   = gba->mem.vram[obj_tile_base + offset];
-							transparent  = palette_id == 0;
-						}
-
-						UINT32 col = *(UINT16*)(gba->mem.palette + GBA_OBJ_PALETTE + palette_id * 2);
-						//Handle window objects(not displayed but control the windowing of other things)
-						if (obj_mode == 2 && !transparent) {
-							gba->window[x] = obj_window_control;
-						} else if (obj_mode != 3) {
-							INT32 type = 4;
-							col = col | (type << 17) | ((5 - priority) << 28) | ((0x7) << 25);
-							if (obj_mode == 1)
-								col |= 1 << 16;
-							if ((col >> 17) > (gba->first_target_buffer[x] >> 17)) {
-								if (transparent) {
-									//Update priority for transparent pixels (needed for golden sun)
-									if (SB_BFE(gba->first_target_buffer[x], 17, 3) != 5)
-										gba->first_target_buffer[x] = (gba->first_target_buffer[x] & (0x0fffffff)) | (col & 0xf0000000);
-								} else gba->first_target_buffer[x] = col;
-							}
-						}
-					}
-				}
-			}
-		}
-		INT32 enabled_windows = SB_BFE(dispcnt, 13, 3);		// [0: win0, 1:win1, 2: objwin]
-		if (enabled_windows) {
-			for (INT32 win = 1; win >= 0; --win) {
-				bool win_enable = SB_BFE(dispcnt, 13 + win, 1);
-				if (!win_enable)
-					continue;
-				UINT16 WINH = gba_io_read16(gba, GBA_WIN0H + 2 * win);
-				UINT16 WINV = gba_io_read16(gba, GBA_WIN0V + 2 * win);
-				INT32  win_xmin = SB_BFE(WINH, 8, 8);
-				INT32  win_xmax = SB_BFE(WINH, 0, 8);
-				INT32  win_ymin = SB_BFE(WINV, 8, 8);
-				INT32  win_ymax = SB_BFE(WINV, 0, 8);
-				// Garbage values of X2>240 or X1>X2 are interpreted as X2=240.
-				// Garbage values of Y2>160 or Y1>Y2 are interpreted as Y2=160. 
-				if (win_xmin > win_xmax)
-					win_xmax = 240;
-				if (win_ymin > win_ymax)
-					win_ymax = 161;
-				if (win_xmax > 240)
-					win_xmax = 240;
-				if (sprite_lcd_y < win_ymin || sprite_lcd_y >= win_ymax)
-					continue;
-				UINT16 winin = gba_io_read16(gba, GBA_WININ);
-				UINT8  win_value = SB_BFE(winin, win * 8, 6);
-				for (INT32 x = win_xmin; x < win_xmax; ++x)
-					gba->window[x] = win_value;
-			}
-			INT32  backdrop_type = 5;
-			UINT32 backdrop_col  = (*(UINT16*)(gba->mem.palette + GBA_BG_PALETTE + 0 * 2)) | (backdrop_type << 17);
-			for (INT32 x = 0; x < 240; ++x) {
-				UINT8 window_control = gba->window[x];
-				if (SB_BFE(window_control, 4, 1) == 0)
-					gba->first_target_buffer[x] = backdrop_col;
-			}
-		}
-	}
-
 	if (visible) {
-		UINT8 window_control = gba->window[lcd_x];
+		UINT8 window_control = gba_obj_merge_pixel(gba, lcd_x, lcd_y);
 		if (bg_mode == 6 || bg_mode == 7) {
 			//Palette 0 is taken as the background
 		} else if (bg_mode <= 5) {
