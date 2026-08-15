@@ -631,7 +631,6 @@ static FORCE_INLINE void arm7_set_thumb_bit(arm7_t* cpu, bool value) {
 		cpu->registers[CPSR] |= 1 << 5;
 }
 static FORCE_INLINE void arm7_process_interrupts(arm7_t* cpu){
-  cpu->wait_for_interrupt=false;
   UINT32 cpsr = cpu->registers[CPSR];
   bool I = ARM7_BFE(cpsr,7,1);
   if(I==0&&cpu->phased_op_id==0){
