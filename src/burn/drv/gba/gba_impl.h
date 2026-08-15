@@ -638,10 +638,23 @@ typedef struct {
 	UINT8  cart_backup[128 * 1024];
 	UINT8  flash_chip_id[4];
 	UINT32 openbus_word;
+	UINT32 dma_latch;
+	UINT32 gamepak_address_latch;
+	bool   last_bus_access_dma;
 	UINT32 eeprom_word;
 	UINT32 eeprom_addr;
 	UINT32 prefetch_en;
-	UINT32 prefetch_size;
+	UINT32 prefetch_head_address;
+	UINT32 prefetch_last_address;
+	INT32  prefetch_count;
+	INT32  prefetch_countdown;
+	INT32  prefetch_duty;
+	UINT8  prefetch_opcode_width;
+	UINT8  prefetch_capacity;
+	bool   prefetch_active;
+	bool   prefetch_thumb;
+	bool   prefetch_was_disabled;
+	bool   last_gamepak_access_dma;
 	UINT32 requests;
 	UINT32 bios_word;
 	UINT32 sram_word;
@@ -686,6 +699,8 @@ typedef struct {
 	INT32  dest_addr;
 	INT32  length;
 	INT32  current_transaction;
+	UINT32 remaining;
+	INT32  activation_countdown;
 	bool   last_enable;
 	bool   last_vblank;
 	bool   last_hblank;
@@ -945,6 +960,11 @@ typedef struct gba_t {
 	bool   last_transaction_dma;
 	bool   activate_dmas;
 	bool   dma_wait_ppu;
+	UINT8  dma_runnable_mask;
+	UINT8  dma_hblank_mask;
+	UINT8  dma_vblank_mask;
+	UINT8  dma_video_mask;
+	INT8   dma_active_channel;
 	gba_timer_t timers[4];
 	UINT32 timer_ticks_before_event;
 	UINT32 deferred_timer_ticks;
@@ -960,7 +980,9 @@ typedef struct gba_t {
 	UINT16 pipelined_if[5];
 	INT32  active_if_pipe_stages;
 	INT32  last_cpu_tick;
-	INT32  residual_dma_ticks;
+	UINT32 pending_host_audio_cycles;
+	UINT8  bus_owner;
+	bool   render_frame;
 	bool   stop_mode;
 	bool   frame_in_progress;
 	bool   pause_after_frame;
@@ -983,6 +1005,14 @@ static bool  gba_run_ar_cheat(gba_t* gba, const UINT32* buffer, UINT32 size);
 static FORCE_INLINE void   gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcnt);
 static FORCE_INLINE UINT32 gba_read32(gba_t* gba, UINT32 baddr);
 static FORCE_INLINE void   gba_store32(gba_t* gba, UINT32 baddr, UINT32 data);
+static FORCE_INLINE void   gba_store16(gba_t* gba, UINT32 baddr, UINT32 data);
+static FORCE_INLINE void   gba_system_advance(gba_t* gba, UINT32 cycles);
+static FORCE_INLINE void   gba_advance_audio_clock(gba_t* gba, UINT32 cycles);
+static FORCE_INLINE INT32  gba_tick_dma(gba_t* gba, INT32 last_tick);
+static FORCE_INLINE void   gba_prefetch_step(gba_t* gba, UINT32 cycles);
+static FORCE_INLINE void   gba_prefetch_stop(gba_t* gba);
+static FORCE_INLINE void   gba_dma_request_mask(gba_t* gba, UINT8 mask);
+static FORCE_INLINE void   gba_dma_tick_activation(gba_t* gba);
 
 //Returns offset into savestate where bess info can be found
 static UINT32 gba_save_best_effort_state(gba_t* gba) 
@@ -1207,6 +1237,27 @@ static FORCE_INLINE UINT32 gba_read32(gba_t* gba, UINT32 baddr)
 		return low | (rom << 16);
 	}
 	return *gba_dword_lookup(gba, baddr, GBA_REQ_READ | GBA_REQ_4B);
+}
+
+static FORCE_INLINE UINT16 gba_gamepak_read16(gba_t* gba, UINT32 address, bool seq)
+{
+	if (!seq || (address & 0x1ffff) == 0)
+		gba->mem.gamepak_address_latch = address & 0x1fffffe;
+	UINT32 latched = gba->mem.gamepak_address_latch;
+	UINT16 value = gba_rom_read16(gba, 0x08000000 | latched);
+	gba->mem.gamepak_address_latch = (latched + 2) & 0x1ffffff;
+	return value;
+}
+
+static FORCE_INLINE UINT32 gba_gamepak_read32(gba_t* gba, UINT32 address, bool seq)
+{
+	if (!seq || (address & 0x1ffff) == 0)
+		gba->mem.gamepak_address_latch = address & 0x1fffffc;
+	UINT32 latched = gba->mem.gamepak_address_latch;
+	UINT32 value = gba_rom_read16(gba, 0x08000000 | latched);
+	value |= (UINT32)gba_rom_read16(gba, 0x08000000 | ((latched + 2) & 0x1ffffff)) << 16;
+	gba->mem.gamepak_address_latch = (latched + 4) & 0x1ffffff;
+	return value;
 }
 
 static FORCE_INLINE UINT16 gba_read16(gba_t* gba, UINT32 baddr)
@@ -2593,8 +2644,9 @@ static FORCE_INLINE void gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcn
 			gba->mem.wait_state_table[(0x08 + i + ws * 2) * 4 + 3] = wait32b_nonseq;
 		}
 	}
-	gba->mem.prefetch_en   = prefetch_en;
-	gba->mem.prefetch_size = 0;
+	if (gba->mem.prefetch_en && !prefetch_en)
+		gba->mem.prefetch_was_disabled = true;
+	gba->mem.prefetch_en = prefetch_en;
 
 	//SRAM
 	gba->mem.wait_state_table[(0x0e * 4) + 0] = 1 + primary_table[sram_wait];
@@ -2622,75 +2674,146 @@ static FORCE_INLINE bool gba_ppu_video_bus_busy(gba_t* gba, UINT32 address)
 	return false;
 }
 
-static FORCE_INLINE void gba_ppu_add_video_wait(gba_t* gba, UINT32 address, INT32 request_size)
+static FORCE_INLINE UINT32 gba_compute_access_cycles(gba_t* gba, UINT32 address, INT32 request_size /*0: 1B,1: 2B,3: 4B*/)
 {
-	UINT32 region = address >> 24;
-	if (region < 0x5 || region > 0x7)
+	INT32 bank = SB_BFE(address, 24, 4);
+	return gba->mem.wait_state_table[bank * 4 + request_size];
+}
+
+static FORCE_INLINE void gba_prefetch_step(gba_t* gba, UINT32 cycles)
+{
+	if (!gba->mem.prefetch_active)
 		return;
-	INT32 beats = request_size >= 2 ? 2 : 1;
-	for (INT32 beat = 0; beat < beats; beat++) {
-		gba_ppu_sync(gba);
-		if (gba_ppu_video_bus_busy(gba, address + beat * 2))
-			gba->mem.requests++;
+	gba->mem.prefetch_countdown -= cycles;
+	while (gba->mem.prefetch_countdown <= 0) {
+		gba->mem.prefetch_count++;
+		if (gba->mem.prefetch_en && gba->mem.prefetch_count < gba->mem.prefetch_capacity) {
+			gba->mem.prefetch_last_address += gba->mem.prefetch_opcode_width;
+			gba->mem.prefetch_countdown += gba->mem.prefetch_duty;
+		} else {
+			break;
+		}
 	}
 }
 
-static FORCE_INLINE void gba_compute_access_cycles(gba_t* gba, UINT32 address, INT32 request_size /*0: 1B,1: 2B,3: 4B*/)
+static FORCE_INLINE void gba_prefetch_stop(gba_t* gba)
 {
-	INT32 bank       = SB_BFE(address, 24, 4);
-	bool prefetch_en = gba->mem.prefetch_en;
-	if (SB_UNLIKELY(!prefetch_en)) {
-		if (gba->cpu.i_cycles)
-			request_size |= 1;
-		if (request_size & 1)
-			gba->cpu.next_fetch_sequential = false;
-		gba->mem.prefetch_size = 0;
+	if (!gba->mem.prefetch_active)
+		return;
+	UINT32 pc = gba->cpu.registers[15];
+	if (pc >= 0x08000000 && pc <= 0x0dffffff) {
+		INT32 half_duty_plus_one = (gba->mem.prefetch_duty >> 1) + 1;
+		if (gba->mem.prefetch_countdown == 1 ||
+			(!gba->mem.prefetch_thumb && gba->mem.prefetch_countdown == half_duty_plus_one))
+			gba_system_advance(gba, 1);
 	}
+	gba->mem.prefetch_active = false;
+}
+
+static FORCE_INLINE void gba_prefetch_access(gba_t* gba, UINT32 address, INT32 request_size, bool code)
+{
+	INT32 bank = SB_BFE(address, 24, 4);
 	UINT32 wait = gba->mem.wait_state_table[bank * 4 + request_size];
-	if (SB_LIKELY(prefetch_en)) {
-		gba->mem.prefetch_size += gba->cpu.i_cycles;
-		if (bank >= 0x08 && bank <= 0x0d) {
-			if (SB_UNLIKELY(request_size & 1)) {
-				UINT32 pc = gba->cpu.prefetch_pc;
-				if (pc >= 0x08000000) {
-					INT32 pc_bank         = SB_BFE(pc, 24, 4);
-					INT32 prefetch_cycles = gba->mem.wait_state_table[pc_bank * 4];
-					INT32 prefetch_phase  = (gba->mem.prefetch_size) % prefetch_cycles;
-					if (gba->mem.prefetch_size >
-						gba->cpu.i_cycles && prefetch_phase == prefetch_cycles - 1)wait += 1;
-				}
-				//Non sequential->reset prefetch buffer
-				gba->mem.prefetch_size         = 0;
-				gba->cpu.next_fetch_sequential = false;
-			} else {
-				//Sequential fetch from prefetch buffer based on available wait states
-				if (gba->mem.prefetch_size >= wait) {
-					gba->mem.prefetch_size -= wait - 1;
-					wait = 1;
-				} else {
-					wait -= gba->mem.prefetch_size;
-					gba->mem.prefetch_size = 0;
-				}
-			}
-		} else gba->mem.prefetch_size += wait;
+	if (!code) {
+		gba_prefetch_stop(gba);
+		gba_system_advance(gba, wait);
+		return;
 	}
-	gba->mem.requests += wait;
-	gba_ppu_add_video_wait(gba, address, request_size);
+	if (gba->mem.prefetch_active) {
+		if (gba->mem.prefetch_count && address == gba->mem.prefetch_head_address) {
+			gba->mem.prefetch_count--;
+			gba->mem.prefetch_head_address += gba->mem.prefetch_opcode_width;
+			gba_system_advance(gba, 1);
+			return;
+		}
+		if (gba->mem.prefetch_countdown > 0 && address == gba->mem.prefetch_last_address) {
+			gba_system_advance(gba, gba->mem.prefetch_countdown);
+			gba->mem.prefetch_head_address = gba->mem.prefetch_last_address;
+			gba->mem.prefetch_count = 0;
+			return;
+		}
+	}
+	gba_prefetch_stop(gba);
+	if (gba->mem.prefetch_was_disabled || gba->mem.last_gamepak_access_dma) {
+		request_size |= 1;
+		wait = gba->mem.wait_state_table[bank * 4 + request_size];
+		gba->mem.prefetch_was_disabled = false;
+		gba->mem.last_gamepak_access_dma = false;
+	}
+	gba_system_advance(gba, wait);
+	if (gba->mem.prefetch_en) {
+		gba->mem.prefetch_active = true;
+		gba->mem.prefetch_count = 0;
+		gba->mem.prefetch_thumb = arm7_get_thumb_bit(&gba->cpu);
+		gba->mem.prefetch_opcode_width = gba->mem.prefetch_thumb ? 2 : 4;
+		gba->mem.prefetch_capacity = gba->mem.prefetch_thumb ? 8 : 4;
+		gba->mem.prefetch_duty = gba->mem.wait_state_table[bank * 4 + (gba->mem.prefetch_thumb ? 0 : 2)];
+		gba->mem.prefetch_countdown = gba->mem.prefetch_duty;
+		gba->mem.prefetch_last_address = address + gba->mem.prefetch_opcode_width;
+		gba->mem.prefetch_head_address = gba->mem.prefetch_last_address;
+	}
+}
+
+static FORCE_INLINE void gba_service_dma_before_cpu_access(gba_t* gba)
+{
+	if (!gba->activate_dmas || gba->bus_owner)
+		return;
+	INT32 elapsed = gba->last_cpu_tick;
+	gba->last_cpu_tick = 0;
+	gba->bus_owner = 1;
+	while (gba->activate_dmas) {
+		if (!gba_tick_dma(gba, elapsed))
+			break;
+		elapsed = 0;
+	}
+	gba->bus_owner = 0;
+}
+
+static FORCE_INLINE void gba_video_bus_beat(gba_t* gba, UINT32 address)
+{
+	do {
+		gba_system_advance(gba, 1);
+		gba_ppu_sync(gba);
+	} while (gba_ppu_video_bus_busy(gba, address));
+}
+
+static FORCE_INLINE bool gba_video_bus_access(gba_t* gba, UINT32 address, INT32 request_size)
+{
+	UINT32 region = address >> 24;
+	if (region < 0x5 || region > 0x7)
+		return false;
+	INT32 beats = request_size >= 2 && region != 0x7 ? 2 : 1;
+	for (INT32 beat = 0; beat < beats; beat++)
+		gba_video_bus_beat(gba, address + beat * 2);
+	return true;
+}
+
+static FORCE_INLINE void gba_cpu_advance_access(gba_t* gba, UINT32 address, INT32 request_size)
+{
+	UINT32 region = address >> 24;
+	if (region >= 0x8 && region <= 0xf) {
+		gba_prefetch_access(gba, address, request_size, false);
+		return;
+	}
+	if (!gba_video_bus_access(gba, address, request_size))
+		gba_system_advance(gba, gba_compute_access_cycles(gba, address, request_size));
 }
 
 static FORCE_INLINE UINT32 gba_compute_access_cycles_dma(gba_t* gba, UINT32 address, INT32 request_size/*0: 1B,1: 2B,3: 4B*/)
 {
-	INT32 bank  = SB_BFE(address, 24, 4);
-	UINT32 wait = gba->mem.wait_state_table[bank * 4 + request_size];
+	INT32 bank = SB_BFE(address, 24, 4);
+	return gba->mem.wait_state_table[bank * 4 + request_size];
+}
+
+static FORCE_INLINE void gba_dma_advance_access(gba_t* gba, UINT32 address, INT32 request_size)
+{
 	UINT32 region = address >> 24;
-	if (region >= 0x5 && region <= 0x7) {
-		INT32 beats = request_size >= 2 ? 2 : 1;
-		for (INT32 beat = 0; beat < beats; beat++) {
-			gba_ppu_sync(gba);
-			wait += gba_ppu_video_bus_busy(gba, address + beat * 2);
-		}
+	if (region >= 0x8 && region <= 0xf) {
+		gba_prefetch_stop(gba);
+		gba->mem.last_gamepak_access_dma = true;
 	}
-	return wait;
+	if (!gba_video_bus_access(gba, address, request_size))
+		gba_system_advance(gba, gba_compute_access_cycles_dma(gba, address, request_size));
 }
 
 static FORCE_INLINE void gba_process_mmio_read(gba_t* gba, UINT32 address);
@@ -2698,28 +2821,68 @@ static FORCE_INLINE void gba_process_mmio_read(gba_t* gba, UINT32 address);
 // Memory IO functions for the emulated CPU
 static FORCE_INLINE UINT32 arm7_read32(void* user_data, UINT32 address)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 3);
-	UINT32 value = gba_read32((gba_t*)user_data, address);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, 3);
+	UINT32 value = gba_read32(gba, address);
 	return value;
 }
 
 static FORCE_INLINE UINT32 arm7_read16(void* user_data, UINT32 address)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 1);
-	UINT16 value = gba_read16((gba_t*)user_data, address);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, 1);
+	UINT16 value = gba_read16(gba, address);
 	return value;
 }
 
 static FORCE_INLINE UINT32 arm7_read32_seq(void* user_data, UINT32 address, bool seq)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, seq ? 2 : 3);
-	return gba_read32((gba_t*)user_data, address);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, seq ? 2 : 3);
+	return gba_read32(gba, address);
 }
 
 static FORCE_INLINE UINT32 arm7_read16_seq(void* user_data, UINT32 address, bool seq)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, seq ? 0 : 1);
-	return gba_read16((gba_t*)user_data, address);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, seq ? 0 : 1);
+	return gba_read16(gba, address);
+}
+
+static FORCE_INLINE UINT32 arm7_fetch32(void* user_data, UINT32 address, bool seq)
+{
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	UINT32 region = address >> 24;
+	if (region >= 0x8 && region <= 0xd) {
+		bool effective_seq = seq && (address & 0x1ffff) != 0 && !gba->mem.last_bus_access_dma;
+		gba_prefetch_access(gba, address, effective_seq ? 2 : 3, true);
+		gba->mem.last_bus_access_dma = false;
+		return gba_gamepak_read32(gba, address, effective_seq);
+	}
+	gba_cpu_advance_access(gba, address, seq ? 2 : 3);
+	gba->mem.last_bus_access_dma = false;
+	return gba_read32(gba, address);
+}
+
+static FORCE_INLINE UINT32 arm7_fetch16(void* user_data, UINT32 address, bool seq)
+{
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	UINT32 region = address >> 24;
+	if (region >= 0x8 && region <= 0xd) {
+		bool effective_seq = seq && (address & 0x1ffff) != 0 && !gba->mem.last_bus_access_dma;
+		gba_prefetch_access(gba, address, effective_seq ? 0 : 1, true);
+		gba->mem.last_bus_access_dma = false;
+		return gba_gamepak_read16(gba, address, effective_seq);
+	}
+	gba_cpu_advance_access(gba, address, seq ? 0 : 1);
+	gba->mem.last_bus_access_dma = false;
+	return gba_read16(gba, address);
 }
 
 void gba_cpu_breakpoint(void* user_data)
@@ -2735,8 +2898,10 @@ static bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT3
 
 static FORCE_INLINE UINT8 arm7_read8(void* user_data, UINT32 address)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 1);
-	return gba_read8((gba_t*)user_data, address);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, 1);
+	return gba_read8(gba, address);
 }
 
 static FORCE_INLINE void gba_dma_write32(gba_t* gba, UINT32 address, UINT32 data)
@@ -2758,50 +2923,80 @@ static FORCE_INLINE void gba_dma_write16(gba_t* gba, UINT32 address, UINT16 data
 
 static FORCE_INLINE void arm7_write32(void* user_data, UINT32 address, UINT32 data)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 3);
-	gba_dma_write32((gba_t*)user_data, address, data);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	UINT32 region = address >> 24;
+	if (region >= 0x5 && region <= 0x6) {
+		gba_video_bus_beat(gba, address);
+		gba_store16(gba, address, data & 0xffff);
+		gba_video_bus_beat(gba, address + 2);
+		gba_store16(gba, address + 2, data >> 16);
+		return;
+	}
+	gba_cpu_advance_access(gba, address, 3);
+	gba_dma_write32(gba, address, data);
 }
 
 static FORCE_INLINE void arm7_write16(void* user_data, UINT32 address, UINT16 data)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 1);
-	gba_dma_write16((gba_t*)user_data, address, data);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, 1);
+	gba_dma_write16(gba, address, data);
 }
 
 static FORCE_INLINE void arm7_write8(void* user_data, UINT32 address, UINT8 data)
 {
-	gba_compute_access_cycles((gba_t*)user_data, address, 1);
+	gba_t* gba = (gba_t*)user_data;
+	gba_service_dma_before_cpu_access(gba);
+	gba_cpu_advance_access(gba, address, 1);
 	if ((address & 0xfffff000) == 0x04000000) {
-		if (gba_process_mmio_write((gba_t*)user_data, address, data, 1))
+		if (gba_process_mmio_write(gba, address, data, 1))
 			return;
 	}
-	gba_store8((gba_t*)user_data, address, data);
+	gba_store8(gba, address, data);
 }
 
 // Try to load a GBA rom, return false on invalid rom
 bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch);
  
+static FORCE_INLINE UINT32 gba_open_bus_value(gba_t* gba)
+{
+	if (gba->mem.last_bus_access_dma)
+		return gba->mem.dma_latch;
+	if (!arm7_get_thumb_bit(&gba->cpu))
+		return gba->cpu.prefetch_opcode[1];
+	UINT32 low = gba->cpu.prefetch_opcode[0] & 0xffff;
+	UINT32 high = gba->cpu.prefetch_opcode[1] & 0xffff;
+	UINT32 region = gba->cpu.registers[PC] >> 24;
+	if (region == 0x2 || region == 0x5 || region == 0x6 || (region >= 0x8 && region <= 0xd))
+		return high * 0x10001u;
+	if (region == 0x3 && (gba->cpu.registers[PC] & 2))
+		return (low << 16) | high;
+	if ((region == 0x0 || region == 0x7) && (gba->cpu.registers[PC] & 2))
+		return high * 0x10001u;
+	return low | (high << 16);
+}
+
 static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_type)
 {
+	gba->mem.openbus_word = gba_open_bus_value(gba);
 	UINT32* ret = &gba->mem.openbus_word;
 	switch (addr >> 24) {
 		case 0x0:
 			if (addr < 0x4000) {
 				if (gba->cpu.registers[15] < 0x4000)
 					gba->mem.bios_word = *(UINT32*)(gba->mem.bios + (addr & ~3));
-				//else gba->mem.bios_word=0;
-				gba->mem.openbus_word = gba->mem.bios_word;
+				ret = &gba->mem.bios_word;
 			}
 			break;
 		case 0x1:
 			break;
 		case 0x2:
 			ret = (UINT32*)(gba->mem.wram0 + (addr & 0x3fffc));
-			gba->mem.openbus_word = *ret;
 			break;
 		case 0x3:
 			ret = (UINT32*)(gba->mem.wram1 + (addr & 0x7ffc));
-			gba->mem.openbus_word = *ret;
 			break;
 		case 0x4:
 			if (SB_LIKELY(addr <= 0x40003ff)) {
@@ -2822,13 +3017,11 @@ static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_
 			break;
 		case 0x5:
 			ret = (UINT32*)(gba->mem.palette + (addr & 0x3fc));
-			gba->mem.openbus_word = *ret;
 			break;
 		case 0x6:
 			if (addr & 0x10000) {
 				ret = (UINT32*)(gba->mem.vram + (addr & 0x07ffc) + 0x10000);
-				gba->mem.openbus_word = *ret;
-				if (addr & 0x08000) {
+					if (addr & 0x08000) {
 					UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
 					INT32 bg_mode  = SB_BFE(dispcnt, 0, 3);
 					//Don't allow writes to mirrored VRAM in bitmap mode. See also vram-mirror.gba
@@ -2838,11 +3031,9 @@ static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_
 					}
 				}
 			} else ret = (UINT32*)(gba->mem.vram + (addr & 0x1fffc));
-			gba->mem.openbus_word = *ret;
 			break;
 		case 0x7:
 			ret = (UINT32*)(gba->mem.oam + (addr & 0x3fc));
-			gba->mem.openbus_word = *ret;
 			break;
 		case 0x8:
 		case 0x9:
@@ -2896,7 +3087,6 @@ static FORCE_INLINE UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_
 					ret = &gba->mem.sram_word;
 				}
 			}
-			gba->mem.openbus_word = (*ret & 0xffff) * 0x10001;
 			break;
 	}
 	return ret;
@@ -3045,7 +3235,42 @@ static bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT3
 		gba->ppu.aff[aff_bg].wrote_bgy = true;
 	} else if (address_u32 == GBA_DMA0CNT_L || address_u32 == GBA_DMA1CNT_L ||
 		address_u32 == GBA_DMA2CNT_L || address_u32 == GBA_DMA3CNT_L) {
-		gba->activate_dmas = true;
+		INT32 channel = (address_u32 - GBA_DMA0CNT_L) / 12;
+		UINT16 old_cnt_h = gba_io_read16(gba, address_u32 + 2);
+		UINT32 value = (gba_io_read32(gba, address_u32) & ~word_mask) | (word_data & word_mask);
+		gba_io_store32(gba, address_u32, value);
+		UINT16 cnt_h = value >> 16;
+		bool old_enable = SB_BFE(old_cnt_h, 15, 1);
+		bool enable = SB_BFE(cnt_h, 15, 1);
+		UINT8 bit = 1 << channel;
+		gba->dma_hblank_mask &= ~bit;
+		gba->dma_vblank_mask &= ~bit;
+		gba->dma_video_mask &= ~bit;
+		if (!enable) {
+			gba->dma_runnable_mask &= ~bit;
+			gba->dma[channel].activation_countdown = -1;
+			gba->dma[channel].last_enable = false;
+		} else {
+			INT32 mode = SB_BFE(cnt_h, 12, 2);
+			if (mode == 1) gba->dma_vblank_mask |= bit;
+			if (mode == 2) gba->dma_hblank_mask |= bit;
+			if (mode == 3 && channel == 3) gba->dma_video_mask |= bit;
+			if (!old_enable) {
+				bool word = SB_BFE(cnt_h, 10, 1);
+				gba->dma[channel].source_addr = gba_io_read32(gba, GBA_DMA0SAD + 12 * channel) & (word ? ~3 : ~1);
+				gba->dma[channel].dest_addr = gba_io_read32(gba, GBA_DMA0DAD + 12 * channel) & (word ? ~3 : ~1);
+				UINT32 count = gba_io_read16(gba, address_u32);
+				if (!count) count = channel == 3 ? 0x10000 : 0x4000;
+				gba->dma[channel].remaining = count;
+				gba->dma[channel].current_transaction = 0;
+				gba->dma[channel].last_enable = true;
+				gba->dma[channel].activation_countdown = -1;
+				gba->dma[channel].startup_delay = -1;
+				if (mode == 0) gba_dma_request_mask(gba, bit);
+			}
+		}
+		gba->activate_dmas = gba->dma_runnable_mask != 0;
+		return true;
 	} else if (address_u32 == GBA_WAITCNT) {
 		UINT16 waitcnt = gba_io_read16(gba, GBA_WAITCNT);
 		waitcnt = ((waitcnt & ~word_mask) | (word_data & word_mask));
@@ -3353,7 +3578,8 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 			bool hblank_irq_en = SB_BFE(disp_stat, 4, 1);
 			if (hblank && hblank_irq_en)
 				new_if |= (1 << GBA_INT_LCD_HBLANK);
-			gba->activate_dmas |= gba->dma_wait_ppu;
+			if (hblank && lcd_y < 160)
+				gba_dma_request_mask(gba, gba->dma_hblank_mask);
 		}
 		if (line_cycle == 0 && lcd_y != gba->ppu.last_lcd_y) {
 			disp_stat &= ~0x4;
@@ -3364,7 +3590,8 @@ static FORCE_INLINE void gba_tick_ppu(gba_t* gba, bool render)
 				bool vblank_irq_en = SB_BFE(disp_stat, 3, 1);
 				if (vblank && vblank_irq_en)
 					new_if |= (1 << GBA_INT_LCD_VBLANK);
-				gba->activate_dmas |= gba->dma_wait_ppu;
+				if (vblank)
+					gba_dma_request_mask(gba, gba->dma_vblank_mask);
 			}
 			gba->ppu.last_lcd_y = lcd_y;
 			if (lcd_y == vcount_cmp && SB_BFE(disp_stat, 5, 1))
@@ -3805,12 +4032,37 @@ void gba_store_eeprom_bitstream(gba_t* gba, UINT32 source_address, INT32 offset,
 	}
 }
 
+static FORCE_INLINE void gba_dma_request_mask(gba_t* gba, UINT8 mask)
+{
+	for (INT32 i = 0; i < 4; i++) {
+		UINT8 bit = 1 << i;
+		if ((mask & bit) && !(gba->dma_runnable_mask & bit) && gba->dma[i].activation_countdown < 0)
+			gba->dma[i].activation_countdown = 2;
+	}
+}
+
+static FORCE_INLINE void gba_dma_tick_activation(gba_t* gba)
+{
+	for (INT32 i = 0; i < 4; i++) {
+		if (gba->dma[i].activation_countdown > 0 && --gba->dma[i].activation_countdown == 0) {
+			UINT16 cnt_h = gba_io_read16(gba, GBA_DMA0CNT_H + 12 * i);
+			if (SB_BFE(cnt_h, 15, 1))
+				gba->dma_runnable_mask |= 1 << i;
+			gba->dma[i].activation_countdown = -1;
+		}
+	}
+	gba->activate_dmas = gba->dma_runnable_mask != 0;
+}
+
 static FORCE_INLINE INT32 gba_tick_dma(gba_t*gba, INT32 last_tick)
 {
 	INT32 ticks = 0;
 	gba->activate_dmas = false;
 	gba->dma_wait_ppu  = false;
 	for (INT32 i = 0;i < 4;++i) {
+		if (!(gba->dma_runnable_mask & (1 << i)))
+			continue;
+		gba->dma_active_channel = i;
 		UINT16 cnt_h = gba_io_read16(gba, GBA_DMA0CNT_H + 12 * i);
 		bool enable  = SB_BFE(cnt_h, 15, 1);
 		if (enable) {
@@ -3899,19 +4151,8 @@ static FORCE_INLINE INT32 gba_tick_dma(gba_t*gba, INT32 last_tick)
 						continue;
 					gba->dma[i].activate_audio_dma = false;
 				}
-				if (gba->dma[i].source_addr >= 0x08000000 && gba->dma[i].dest_addr >= 0x08000000) {
+				if (gba->dma[i].source_addr >= 0x08000000 && gba->dma[i].dest_addr >= 0x08000000)
 					force_first_write_sequential = true;
-				} else {
-					if (gba->dma[i].dest_addr >= 0x08000000) {
-						// Allow the in process prefetech to finish before starting DMA
-						if (!gba->mem.prefetch_size && gba->mem.prefetch_en)
-							ticks += gba_compute_access_cycles_dma(gba, gba->dma[i].dest_addr, 2) > 4;
-					}
-				}
-				if (gba->dma[i].source_addr >= 0x08000000) {
-					if (gba->mem.prefetch_en)
-						ticks += gba_compute_access_cycles_dma(gba, gba->dma[i].source_addr, 2) <= 4;
-				}
 				gba->last_transaction_dma = true;
 				UINT32 cnt = gba_io_read16(gba, GBA_DMA0CNT_L + 12 * i);
 
@@ -3994,13 +4235,15 @@ static FORCE_INLINE INT32 gba_tick_dma(gba_t*gba, INT32 last_tick)
 				src &= ~3;
 				for (INT32 x = 0;x < 4;++x) {
 					UINT32 src_addr = src + x * 4 * src_dir;
-					UINT32 data     = gba_read32(gba, src_addr);
+					gba_dma_advance_access(gba, src_addr, x != 0 ? 2 : 3);
+					UINT32 data = gba_read32(gba, src_addr);
+					gba->mem.dma_latch = data;
+					gba->mem.last_bus_access_dma = true;
+					gba_dma_advance_access(gba, dst, x != 0 || force_first_write_sequential ? 2 : 3);
 					gba_audio_fifo_push(gba, fifo, SB_BFE(data, 0, 8));
 					gba_audio_fifo_push(gba, fifo, SB_BFE(data, 8, 8));
 					gba_audio_fifo_push(gba, fifo, SB_BFE(data, 16, 8));
 					gba_audio_fifo_push(gba, fifo, SB_BFE(data, 24, 8));
-					ticks += gba_compute_access_cycles_dma(gba, src_addr, x != 0 ? 2 : 3);
-					ticks += gba_compute_access_cycles_dma(gba, dst, x != 0 || force_first_write_sequential ? 2 : 3);
 				}
 				dst_addr_ctl   = 2;
 				transfer_bytes = 4;
@@ -4014,26 +4257,33 @@ static FORCE_INLINE INT32 gba_tick_dma(gba_t*gba, INT32 last_tick)
 					INT32 src_addr = src + x * transfer_bytes * src_dir;
 					if (type) {
 						if (src_addr >= 0x02000000) {
+							gba_dma_advance_access(gba, src_addr, x != 0 ? 2 : 3);
 							gba->dma[i].latched_transfer = gba_read32(gba, src_addr);
-							ticks += gba_compute_access_cycles_dma(gba, src_addr, x != 0 ? 2 : 3);
+							gba->mem.dma_latch = gba->dma[i].latched_transfer;
+							gba->mem.last_bus_access_dma = true;
 						}
+						gba_dma_advance_access(gba, dst_addr, x != 0 || force_first_write_sequential ? 2 : 3);
 						gba_dma_write32(gba, dst_addr, gba->dma[i].latched_transfer);
-						ticks += gba_compute_access_cycles_dma(gba, dst_addr, x != 0 || force_first_write_sequential ? 2 : 3);
+						ticks = -1;
 					} else {
 						INT32 v = 0;
 						if (src_addr >= 0x02000000) {
-							v = gba->dma[i].latched_transfer = (gba_read16(gba, src_addr)) & 0xffff;
+							gba_dma_advance_access(gba, src_addr, x != 0 ? 0 : 1);
+							v = gba->dma[i].latched_transfer = gba_read16(gba, src_addr) & 0xffff;
 							gba->dma[i].latched_transfer |= gba->dma[i].latched_transfer << 16;
-							ticks += gba_compute_access_cycles_dma(gba, src_addr, x != 0 ? 0 : 1);
+							gba->mem.dma_latch = gba->dma[i].latched_transfer;
+							gba->mem.last_bus_access_dma = true;
 						} else
 							v = gba->dma[i].latched_transfer >> (((dst_addr) & 0x3) * 8);
+						gba_dma_advance_access(gba, dst_addr, x != 0 || force_first_write_sequential ? 0 : 1);
 						gba_dma_write16(gba, dst_addr, v & 0xffff);
-						ticks += gba_compute_access_cycles_dma(gba, dst_addr, x != 0 || force_first_write_sequential ? 0 : 1);
+						ticks = -1;
 					}
 				}
 			}
 		
 			if (gba->dma[i].current_transaction >= cnt) {
+				gba->dma_runnable_mask &= ~(1 << i);
 				if (dst_addr_ctl == 0 || dst_addr_ctl == 3)
 					dst += cnt * transfer_bytes;
 				else if (dst_addr_ctl == 1)
@@ -4065,14 +4315,16 @@ static FORCE_INLINE INT32 gba_tick_dma(gba_t*gba, INT32 last_tick)
 		if (ticks)
 			break;
 	}
-	gba->activate_dmas |= ticks != 0;
+	if (ticks)
+		gba->dma_runnable_mask |= 1 << gba->dma_active_channel;
+	gba->activate_dmas = gba->dma_runnable_mask != 0;
  
 	if (gba->last_transaction_dma && ticks == 0) {
-		ticks += 2;
+		gba_system_advance(gba, 2);
 		gba->last_transaction_dma = false;
 	}
 
-	return ticks;
+	return ticks < 0 ? 1 : ticks;
 }
 
 static FORCE_INLINE void gba_tick_sio(gba_t* gba)
@@ -4185,7 +4437,8 @@ static void gba_compute_timers(gba_t* gba)
 							--size;
 						}
 						if (size < GBA_AUDIO_DMA_ACTIVATE_THRESHOLD)
-							gba->dma[i + 1].activate_audio_dma = gba->activate_dmas = true;
+							gba->dma[i + 1].activate_audio_dma = true;
+						gba_dma_request_mask(gba, 1 << (i + 1));
 					}
 				}
 				if (irq_en) {
@@ -4965,37 +5218,40 @@ static void sb_process_audio_writes(sb_gb_t* gb)
 	sb_store8_io(gb, SB_IO_SOUND_ON_OFF, nrf_52);
 }
 
-static FORCE_INLINE void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, double delta_time, INT32 cycles)
+static FORCE_INLINE void gba_advance_audio_clock(gba_t* gba, UINT32 cycles)
 {
-	sb_audio_t* audio = &gb->audio;
-	sb_frame_sequencer_t* seq = &audio->sequencer;
-
-	if (delta_time > 1.0 / 60.)
-		delta_time = 1.0 / 60.;
-	audio->current_sim_time += delta_time;
-#ifdef GBA_AUDIO
+	gba_audio_t* audio = &gba->audio;
+	gba_frame_sequencer_t* seq = &audio->sequencer;
 	UINT32 prev_audio_clock = audio->audio_clock;
 	audio->audio_clock += cycles;
-	cycles = (audio->audio_clock - (prev_audio_clock & ~3)) / 4;
+	UINT32 audio_cycles = (audio->audio_clock - (prev_audio_clock & ~3)) / 4;
 	UINT32 frame_cycles = (audio->audio_clock - (prev_audio_clock & ~32767)) / 32768;
 	while (frame_cycles--)
-		gba_tick_frame_seq(gb, seq);
-#endif
+		gba_tick_frame_seq(gba, seq);
 
-	INT32 freq_tim = audio->wave_freq_timer;
-	freq_tim -= cycles;
+	INT32 freq_tim = audio->wave_freq_timer - (INT32)audio_cycles;
 	if (freq_tim < 0) {
 		INT32 wave_inc_count = (-freq_tim - 1) / ((2048 - seq->frequency[2]) * 2) + 1;
 		audio->wave_sample_offset += wave_inc_count;
 		freq_tim += (2048 - seq->frequency[2]) * 2 * wave_inc_count;
-		UINT32 wav_samp = (audio->wave_sample_offset) % 32;
-		INT32 dat = sb_read_wave_ram(gb, wav_samp / 2);
+		UINT32 wav_samp = audio->wave_sample_offset % 32;
+		INT32 dat = gba_read_wave_ram(gba, wav_samp / 2);
 		audio->curr_wave_data = dat;
 		INT32 offset = (wav_samp & 1) ? 0 : 4;
-		audio->curr_wave_sample = ((dat >> offset) & 0xf);
+		audio->curr_wave_sample = (dat >> offset) & 0xf;
 	}
 	audio->wave_freq_timer = freq_tim;
+}
 
+static FORCE_INLINE void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, double delta_time, INT32 cycles)
+{
+	sb_audio_t* audio = &gb->audio;
+	sb_frame_sequencer_t* seq = &audio->sequencer;
+	(void)cycles;
+
+	if (delta_time > 1.0 / 60.)
+		delta_time = 1.0 / 60.;
+	audio->current_sim_time += delta_time;
 	audio->current_sample_generated_time -= (int)(audio->current_sim_time);
 	audio->current_sim_time -= (int)(audio->current_sim_time);
 
@@ -5217,6 +5473,27 @@ static FORCE_INLINE void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, doubl
 
 // END GB REUSE CODE SHIM//
 
+static FORCE_INLINE void gba_system_advance(gba_t* gba, UINT32 cycles)
+{
+	gba->pending_host_audio_cycles += cycles;
+	gba_prefetch_step(gba, cycles);
+	gba_advance_audio_clock(gba, cycles);
+	for (UINT32 i = 0; i < cycles; i++) {
+		gba_dma_tick_activation(gba);
+		gba_tick_sio(gba);
+		gba_tick_interrupts(gba);
+		gba_tick_timers(gba);
+		gba_tick_ppu(gba, gba->render_frame);
+	}
+}
+
+static void gba_cpu_idle(void* user_data, UINT32 cycles)
+{
+	gba_t* gba = (gba_t*)user_data;
+	gba->cpu.next_fetch_sequential = false;
+	gba_system_advance(gba, cycles);
+}
+
 void gba_cpu_trigger_breakpoint(void* data)
 {
 	gba_t* gba = (gba_t*)data;
@@ -5235,9 +5512,12 @@ void gba_ptrs_init(gba_t* gba, gba_scratch_t* scratch, UINT8* rom_data)
 	gba->cpu.read32       = arm7_read32;
 	gba->cpu.read16_seq   = arm7_read16_seq;
 	gba->cpu.read32_seq   = arm7_read32_seq;
+	gba->cpu.fetch16      = arm7_fetch16;
+	gba->cpu.fetch32      = arm7_fetch32;
 	gba->cpu.write8       = arm7_write8;
 	gba->cpu.write16      = arm7_write16;
 	gba->cpu.write32      = arm7_write32;
+	gba->cpu.idle         = gba_cpu_idle;
 	gba->cpu.user_data    = gba;
 }
 
@@ -5264,16 +5544,12 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 	gba->tilt_sensor.pending_x = gba_tilt_sample(emu->joy.tilt_x);
 	gba->tilt_sensor.pending_y = gba_tilt_sample(emu->joy.tilt_y);
 	gba->ppu.ghosting_strength = emu->screen_ghosting_strength;
+	gba->render_frame = emu->render_frame;
 	while (gba->frame_in_progress) {
 		INT32 ticks = gba->activate_dmas ? gba_tick_dma(gba, gba->last_cpu_tick) : 0;
-		if (!ticks && gba->residual_dma_ticks) {
-			ticks = gba->residual_dma_ticks;
-			gba->residual_dma_ticks = 0;
-		}
 		if (!ticks) {
 			gba->cpu.i_cycles = 0;
-			gba->mem.requests = 0;
-			if (!gba->cpu.phased_op_id) {
+						if (!gba->cpu.phased_op_id) {
 				UINT16 int_if = gba_io_read16(gba, GBA_IF);
 				if (SB_UNLIKELY(int_if)) {
 					int_if &= gba_io_read16(gba, GBA_IE);
@@ -5283,39 +5559,18 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 						arm7_process_interrupts(&gba->cpu);
 				}
 			}
+			UINT64 begin_clock = gba->ppu.committed_clock;
 			arm7_exec_instruction(&gba->cpu);
-			gba->last_cpu_tick = ticks = gba->mem.requests + gba->cpu.i_cycles;
+			gba->last_cpu_tick = (INT32)(gba->ppu.committed_clock - begin_clock);
+			ticks = 0;
 		}
-		gba_tick_sio(gba);
-		INT32 ppu_fast_forward   = gba->ppu.fast_forward_ticks;
-		INT32 timer_fast_forward = gba->timer_ticks_before_event - gba->deferred_timer_ticks;
-		INT32 fast_forward_ticks = ppu_fast_forward < timer_fast_forward ? ppu_fast_forward : timer_fast_forward;
-		if (fast_forward_ticks > ticks) {
-			if (gba->cpu.wait_for_interrupt)
-				ticks = fast_forward_ticks;
-			else
-				fast_forward_ticks = ticks;
-		}
-		if (SB_UNLIKELY(gba->active_if_pipe_stages)) {
-			for (INT32 i = 0;i < fast_forward_ticks;++i)
-				gba_tick_interrupts(gba);
-		}
-		// RTC advances with host wall time, not emulated master clocks
-		gba->deferred_timer_ticks   += fast_forward_ticks;
-		gba->ppu.fast_forward_ticks -= fast_forward_ticks;
-		ticks -= fast_forward_ticks > ticks ? ticks : fast_forward_ticks;
-		double delta_t = ((double)ticks + fast_forward_ticks) / (16 * 1024 * 1024);
-		gba_tick_audio(gba, emu, delta_t, ticks + fast_forward_ticks);
-
-		bool last_activate_dmas = gba->activate_dmas;
-		for (INT32 t = 0;t < ticks;++t) {
-			if (gba->activate_dmas && !last_activate_dmas) {
-				gba->residual_dma_ticks = ticks - t - 1;
-				gba->last_cpu_tick = t + 1;
-			}
-			gba_tick_interrupts(gba);
-			gba_tick_timers(gba);
-			gba_tick_ppu(gba, emu->render_frame);
+		if (ticks > 1)
+			gba_system_advance(gba, ticks);
+		if (gba->pending_host_audio_cycles) {
+			UINT32 audio_cycles = gba->pending_host_audio_cycles;
+			gba->pending_host_audio_cycles = 0;
+			double delta_t = (double)audio_cycles / (16 * 1024 * 1024);
+			gba_tick_audio(gba, emu, delta_t, 0);
 		}
 	}
 	gba_gpio_update_rumble(gba);

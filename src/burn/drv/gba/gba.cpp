@@ -460,12 +460,15 @@ INT32 GbaCoreSaveState(const GbaCore *core, void *data, size_t size)
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, read32);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, read16_seq);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, read32_seq);
+	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, fetch16);
+	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, fetch32);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, write8);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, write16);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, write32);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_read);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_write);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, trigger_breakpoint);
+	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, idle);
 #undef GBA_CLEAR_STATE_FIELD
 	return 0;
 }
