@@ -15,39 +15,39 @@ env:
     WINDOWS_MINGW_X64_ARTIFACT: windows-mingw-x64
     WINDOWS_MINGW_X64_ARTIFACT_PATH: windows-mingw-x64.txt
     WINDOWS_MINGW_X64_ARCHIVE_ARTIFACT: windows-mingw-x64-archive
-    WINDOWS_MINGW_X64_DEBUG_ARTIFACT: windows-mingw-x64-debug
-    WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH: windows-mingw-x64-debug.txt
-    WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT: windows-mingw-x64-debug-archive
+#    WINDOWS_MINGW_X64_DEBUG_ARTIFACT: windows-mingw-x64-debug
+#    WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH: windows-mingw-x64-debug.txt
+#    WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT: windows-mingw-x64-debug-archive
     WINDOWS_MINGW_X86_ARTIFACT: windows-mingw-x86
     WINDOWS_MINGW_X86_ARTIFACT_PATH: windows-mingw-x86.txt
     WINDOWS_MINGW_X86_ARCHIVE_ARTIFACT: windows-mingw-x86-archive
-    WINDOWS_MINGW_X86_DEBUG_ARTIFACT: windows-mingw-x86-debug
-    WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH: windows-mingw-x86-debug.txt
-    WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT: windows-mingw-x86-debug-archive
+#    WINDOWS_MINGW_X86_DEBUG_ARTIFACT: windows-mingw-x86-debug
+#    WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH: windows-mingw-x86-debug.txt
+#    WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT: windows-mingw-x86-debug-archive
     WINDOWS_UCRT64_X64_ARTIFACT: windows-ucrt64-x64
     WINDOWS_UCRT64_X64_ARTIFACT_PATH: windows-ucrt64-x64.txt
     WINDOWS_UCRT64_X64_ARCHIVE_ARTIFACT: windows-ucrt64-x64-archive
-    WINDOWS_UCRT64_X64_DEBUG_ARTIFACT: windows-ucrt64-x64-debug
-    WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH: windows-ucrt64-x64-debug.txt
-    WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT: windows-ucrt64-x64-debug-archive
+#    WINDOWS_UCRT64_X64_DEBUG_ARTIFACT: windows-ucrt64-x64-debug
+#    WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH: windows-ucrt64-x64-debug.txt
+#    WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT: windows-ucrt64-x64-debug-archive
     WINDOWS_MSVC_X64_ARTIFACT: windows-msvc-x64
     WINDOWS_MSVC_X64_ARTIFACT_PATH: windows-msvc-x64.txt
     WINDOWS_MSVC_X64_ARCHIVE_ARTIFACT: windows-msvc-x64-archive
-    WINDOWS_MSVC_X64_DEBUG_ARTIFACT: windows-msvc-x64-debug
-    WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH: windows-msvc-x64-debug.txt
-    WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x64-debug-archive
+#    WINDOWS_MSVC_X64_DEBUG_ARTIFACT: windows-msvc-x64-debug
+#    WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH: windows-msvc-x64-debug.txt
+#    WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x64-debug-archive
     WINDOWS_MSVC_ARM64_ARTIFACT: windows-msvc-arm64
     WINDOWS_MSVC_ARM64_ARTIFACT_PATH: windows-msvc-arm64.txt
     WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT: windows-msvc-arm64-archive
-    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT: windows-msvc-arm64-debug
-    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH: windows-msvc-arm64-debug.txt
-    WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-arm64-debug-archive
+#    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT: windows-msvc-arm64-debug
+#    WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH: windows-msvc-arm64-debug.txt
+#    WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-arm64-debug-archive
     WINDOWS_MSVC_X86_ARTIFACT: windows-msvc-x86
     WINDOWS_MSVC_X86_ARTIFACT_PATH: windows-msvc-x86.txt
     WINDOWS_MSVC_X86_ARCHIVE_ARTIFACT: windows-msvc-x86-archive
-    WINDOWS_MSVC_X86_DEBUG_ARTIFACT: windows-msvc-x86-debug
-    WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH: windows-msvc-x86-debug.txt
-    WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x86-debug-archive
+#    WINDOWS_MSVC_X86_DEBUG_ARTIFACT: windows-msvc-x86-debug
+#    WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH: windows-msvc-x86-debug.txt
+#    WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT: windows-msvc-x86-debug-archive
     LINUX_SDL2_X64_ARTIFACT: linux-sdl2-x64
     LINUX_SDL2_X64_ARTIFACT_PATH: linux-sdl2-x64.txt
     LINUX_SDL2_X64_ARCHIVE_ARTIFACT: linux-sdl2-x64-archive
@@ -90,7 +90,7 @@ jobs:
           echo "| Windows MSVC ARM64        | Windows 11 ARM64     |" >> ${archive_file}
           echo "| Linux SDL1/SDL2 x64       | Linux 64-bit         |" >> ${archive_file}
           echo "" >> ${archive_file}
-          echo "• Debug builds: with debug symbols, unoptimized, not suitable for gaming" >> ${archive_file}
+          # echo "• Debug builds: with debug symbols, unoptimized, not suitable for gaming" >> ${archive_file}
           echo "" >> ${archive_file}
           echo "### Commits since previous nightly" >> ${archive_file}
           awk '{print "• " $0}' commits.txt >> ${archive_file}
@@ -156,48 +156,48 @@ jobs:
           path: ${{ steps.create_windows_mingw_x64_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_mingw_x64_debug:
-    name: Build (Windows MinGW x64 Debug)
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - name: Install dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: msys2-devel base-devel binutils mingw-w64-x86_64-toolchain mingw-w64-x86_64-nasm zip wget
-          msystem: MINGW64
-
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_mingw_x64_debug_archive
-        run: |
-          make -j$(nproc) mingw BUILD_X64_EXE=1 SKIPDEPEND=1
-          archive_file="${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}.zip"
-          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
-          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
-
-      - name: Create Archive Path
-        run: |
-          echo archive_path= '${{ steps.create_windows_mingw_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_mingw_x64_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_mingw_x64_debug:
+#    name: Build (Windows MinGW x64 Debug)
+#    runs-on: windows-latest
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    steps:
+#      - name: Install dependencies
+#        uses: msys2/setup-msys2@v2
+#        with:
+#          update: true
+#          install: msys2-devel base-devel binutils mingw-w64-x86_64-toolchain mingw-w64-x86_64-nasm zip wget
+#          msystem: MINGW64
+#
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_mingw_x64_debug_archive
+#        run: |
+#          make -j$(nproc) mingw BUILD_X64_EXE=1 SKIPDEPEND=1
+#          archive_file="${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}.zip"
+#          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
+#          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
+#
+#      - name: Create Archive Path
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_mingw_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_mingw_x64_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_windows_mingw_x86:
     name: Build (Windows MinGW x86)
@@ -243,49 +243,49 @@ jobs:
           path: ${{ steps.create_windows_mingw_x86_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_mingw_x86_debug:
-    name: Build (Windows MinGW x86 Debug)
-    runs-on: windows-latest
-    continue-on-error: true
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - name: Install dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: msys2-devel base-devel binutils mingw-w64-i686-toolchain mingw-w64-i686-nasm zip wget
-          msystem: MINGW32
-
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_mingw_x86_debug_archive
-        run: |
-          make -j$(nproc) mingw SKIPDEPEND=1
-          archive_file="${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}.zip"
-          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
-          zip --junk-paths "${archive_file}" fbneod.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
-
-      - name: Create Archive Path
-        run: |
-          echo archive_path= '${{ steps.create_windows_mingw_x86_debug_archive.outputs.archive_file }}' > $WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_mingw_x86_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_mingw_x86_debug:
+#    name: Build (Windows MinGW x86 Debug)
+#    runs-on: windows-latest
+#    continue-on-error: true
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    steps:
+#      - name: Install dependencies
+#        uses: msys2/setup-msys2@v2
+#        with:
+#          update: true
+#          install: msys2-devel base-devel binutils mingw-w64-i686-toolchain mingw-w64-i686-nasm zip wget
+#          msystem: MINGW32
+#
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_mingw_x86_debug_archive
+#        run: |
+#          make -j$(nproc) mingw SKIPDEPEND=1
+#          archive_file="${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}.zip"
+#          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
+#          zip --junk-paths "${archive_file}" fbneod.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
+#
+#      - name: Create Archive Path
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_mingw_x86_debug_archive.outputs.archive_file }}' > $WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_mingw_x86_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_windows_ucrt64_x64:
     name: Build (Windows UCRT64 x64)
@@ -330,48 +330,48 @@ jobs:
           path: ${{ steps.create_windows_ucrt64_x64_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_ucrt64_x64_debug:
-    name: Build (Windows UCRT64 x64 Debug)
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - name: Install dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: msys2-devel base-devel binutils mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-nasm zip wget
-          msystem: UCRT64
-
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_ucrt64_x64_debug_archive
-        run: |
-          make -j$(nproc) mingw BUILD_X64_EXE=1 SKIPDEPEND=1
-          archive_file="${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}.zip"
-          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
-          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
-
-      - name: Create Archive Path
-        run: |
-          echo archive_path= '${{ steps.create_windows_ucrt64_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_ucrt64_x64_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_ucrt64_x64_debug:
+#    name: Build (Windows UCRT64 x64 Debug)
+#    runs-on: windows-latest
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    steps:
+#      - name: Install dependencies
+#        uses: msys2/setup-msys2@v2
+#        with:
+#          update: true
+#          install: msys2-devel base-devel binutils mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-nasm zip wget
+#          msystem: UCRT64
+#
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_ucrt64_x64_debug_archive
+#        run: |
+#          make -j$(nproc) mingw BUILD_X64_EXE=1 SKIPDEPEND=1
+#          archive_file="${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}.zip"
+#          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
+#          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
+#
+#      - name: Create Archive Path
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_ucrt64_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_ucrt64_x64_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_windows_msvc_x64:
     name: Build (Windows MSVC x64)
@@ -424,56 +424,56 @@ jobs:
           path: ${{ steps.create_windows_msvc_x64_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_msvc_x64_debug:
-    name: Build (Windows MSVC x64 Debug)
-    runs-on: windows-latest
-    continue-on-error: true
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - name: Install dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: msys2-devel base-devel binutils mingw-w64-ucrt-x86_64-nasm perl zip
-          msystem: UCRT64
-
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_msvc_x64_debug_exe
-        shell: cmd
-        run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCINSTALLDIR=%%i"
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
-          make -j%NUMBER_OF_PROCESSORS% vc18 BUILD_X64_EXE=1
-
-      - name: Package
-        id: create_windows_msvc_x64_debug_archive
-        run: |
-          archive_file="${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}.zip"
-          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
-          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
-
-      - name: Create Archive Path
-        run: |
-          echo archive_path= '${{ steps.create_windows_msvc_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_msvc_x64_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_msvc_x64_debug:
+#    name: Build (Windows MSVC x64 Debug)
+#    runs-on: windows-latest
+#    continue-on-error: true
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    steps:
+#      - name: Install dependencies
+#        uses: msys2/setup-msys2@v2
+#        with:
+#          update: true
+#          install: msys2-devel base-devel binutils mingw-w64-ucrt-x86_64-nasm perl zip
+#          msystem: UCRT64
+#
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_msvc_x64_debug_exe
+#        shell: cmd
+#        run: |
+#          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCINSTALLDIR=%%i"
+#          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
+#          make -j%NUMBER_OF_PROCESSORS% vc18 BUILD_X64_EXE=1
+#
+#      - name: Package
+#        id: create_windows_msvc_x64_debug_archive
+#        run: |
+#          archive_file="${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}.zip"
+#          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
+#          zip --junk-paths "${archive_file}" fbneo64d.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
+#
+#      - name: Create Archive Path
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_msvc_x64_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_msvc_x64_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_windows_msvc_arm64:
     name: Build (Windows MSVC ARM64)
@@ -531,61 +531,61 @@ jobs:
           path: ${{ steps.create_windows_msvc_arm64_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_msvc_arm64_debug:
-    name: Build (Windows MSVC ARM64 Debug)
-    runs-on: windows-11-vs2026-arm
-    continue-on-error: true
-    steps:
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_msvc_arm64_debug_exe
-        shell: cmd
-        run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath`) do set "VCINSTALLDIR=%%i"
-          if not defined VCINSTALLDIR exit /b 1
-          if not exist "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat" exit /b 1
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
-          msbuild projectfiles\visualstudio-2026\fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
-          set "PROJECT=projectfiles\visualstudio-2026"
-          for %%F in (ctv_make.exe pgm_sprite_create.exe m68kmake.exe build_details_arm64.exe) do dumpbin /headers "%PROJECT%\hosttools\x64\Release\%%F" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" /C:"machine (x64)" >nul || exit /b 1
-          if not exist "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" exit /b 1
-          dumpbin /headers "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" >nul || exit /b 1
-          findstr /C:"#define BUILD_CPU  ARM64" "%PROJECT%\generated\build_details.h" >nul || exit /b 1
-          dir /s /b "%PROJECT%\ARM64\Debug\obj\*mips3_x64*.obj" >nul 2>&1 && exit /b 1 || ver >nul
-          dir /s /b "%PROJECT%\ARM64\Debug\obj\*.asm.obj" >nul 2>&1 && exit /b 1 || ver >nul
-
-      - name: Package
-        id: create_windows_msvc_arm64_debug_archive
-        shell: pwsh
-        run: |
-          $archive = '${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}.zip'
-          Compress-Archive -DestinationPath $archive -Force -Path `
-            projectfiles/visualstudio-2026/ARM64/Debug/fbneoarm64d.exe, `
-            src/license.txt, `
-            fbahelpfilesrc/fbneo.chm, `
-            whatsnew.html
-          "archive_file=$archive" >> $env:GITHUB_OUTPUT
-
-      - name: Create Archive Path
-        shell: bash
-        run: |
-          echo archive_path= '${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_msvc_arm64_debug:
+#    name: Build (Windows MSVC ARM64 Debug)
+#    runs-on: windows-11-vs2026-arm
+#    continue-on-error: true
+#    steps:
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_msvc_arm64_debug_exe
+#        shell: cmd
+#        run: |
+#          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath`) do set "VCINSTALLDIR=%%i"
+#          if not defined VCINSTALLDIR exit /b 1
+#          if not exist "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat" exit /b 1
+#          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"
+#          msbuild projectfiles\visualstudio-2026\fbneo_vs2026.sln /m /property:Configuration=Debug /property:Platform=ARM64 /verbosity:minimal
+#          set "PROJECT=projectfiles\visualstudio-2026"
+#          for %%F in (ctv_make.exe pgm_sprite_create.exe m68kmake.exe build_details_arm64.exe) do dumpbin /headers "%PROJECT%\hosttools\x64\Release\%%F" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" /C:"machine (x64)" >nul || exit /b 1
+#          if not exist "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" exit /b 1
+#          dumpbin /headers "%PROJECT%\ARM64\Debug\fbneoarm64d.exe" | findstr /C:"machine (ARM64)" /C:"machine (AA64)" >nul || exit /b 1
+#          findstr /C:"#define BUILD_CPU  ARM64" "%PROJECT%\generated\build_details.h" >nul || exit /b 1
+#          dir /s /b "%PROJECT%\ARM64\Debug\obj\*mips3_x64*.obj" >nul 2>&1 && exit /b 1 || ver >nul
+#          dir /s /b "%PROJECT%\ARM64\Debug\obj\*.asm.obj" >nul 2>&1 && exit /b 1 || ver >nul
+#
+#      - name: Package
+#        id: create_windows_msvc_arm64_debug_archive
+#        shell: pwsh
+#        run: |
+#          $archive = '${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}.zip'
+#          Compress-Archive -DestinationPath $archive -Force -Path `
+#            projectfiles/visualstudio-2026/ARM64/Debug/fbneoarm64d.exe, `
+#            src/license.txt, `
+#            fbahelpfilesrc/fbneo.chm, `
+#            whatsnew.html
+#          "archive_file=$archive" >> $env:GITHUB_OUTPUT
+#
+#      - name: Create Archive Path
+#        shell: bash
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_msvc_arm64_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_windows_msvc_x86:
     name: Build (Windows MSVC x86)
@@ -638,56 +638,56 @@ jobs:
           path: ${{ steps.create_windows_msvc_x86_archive.outputs.archive_file }}
           retention-days: 1
 
-  build_windows_msvc_x86_debug:
-    name: Build (Windows MSVC x86 Debug)
-    runs-on: windows-latest
-    continue-on-error: true
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - name: Install dependencies
-        uses: msys2/setup-msys2@v2
-        with:
-          update: true
-          install: msys2-devel base-devel binutils mingw-w64-i686-nasm perl zip
-          msystem: MINGW32
-
-      - name: Clone
-        uses: actions/checkout@v4
-
-      - name: Build
-        id: create_windows_msvc_x86_debug_exe
-        shell: cmd
-        run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCINSTALLDIR=%%i"
-          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvarsamd64_x86.bat"
-          make -j%NUMBER_OF_PROCESSORS% vc18
-
-      - name: Package
-        id: create_windows_msvc_x86_debug_archive
-        run: |
-          archive_file="${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}.zip"
-          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
-          zip --junk-paths "${archive_file}" fbneod.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
-
-      - name: Create Archive Path
-        run: |
-          echo archive_path= '${{ steps.create_windows_msvc_x86_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH
-
-      - name: Upload Archive Path
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}
-          path: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH }}
-          retention-days: 1
-
-      - name: Upload Archive as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT }}
-          path: ${{ steps.create_windows_msvc_x86_debug_archive.outputs.archive_file }}
-          retention-days: 1
+#  build_windows_msvc_x86_debug:
+#    name: Build (Windows MSVC x86 Debug)
+#    runs-on: windows-latest
+#    continue-on-error: true
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    steps:
+#      - name: Install dependencies
+#        uses: msys2/setup-msys2@v2
+#        with:
+#          update: true
+#          install: msys2-devel base-devel binutils mingw-w64-i686-nasm perl zip
+#          msystem: MINGW32
+#
+#      - name: Clone
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        id: create_windows_msvc_x86_debug_exe
+#        shell: cmd
+#        run: |
+#          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VCINSTALLDIR=%%i"
+#          call "%VCINSTALLDIR%\VC\Auxiliary\Build\vcvarsamd64_x86.bat"
+#          make -j%NUMBER_OF_PROCESSORS% vc18
+#
+#      - name: Package
+#        id: create_windows_msvc_x86_debug_archive
+#        run: |
+#          archive_file="${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}.zip"
+#          echo "archive_file=${archive_file}" >> $GITHUB_OUTPUT
+#          zip --junk-paths "${archive_file}" fbneod.exe src/license.txt fbahelpfilesrc/fbneo.chm whatsnew.html
+#
+#      - name: Create Archive Path
+#        run: |
+#          echo archive_path= '${{ steps.create_windows_msvc_x86_debug_archive.outputs.archive_file }}' > $WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH
+#
+#      - name: Upload Archive Path
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}
+#          path: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH }}
+#          retention-days: 1
+#
+#      - name: Upload Archive as Artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT }}
+#          path: ${{ steps.create_windows_msvc_x86_debug_archive.outputs.archive_file }}
+#          retention-days: 1
 
   build_linux_sdl2_x64:
     name: Build (Linux SDL2 x64)
@@ -852,7 +852,7 @@ jobs:
 #          retention-days: 1
 
   release:
-    needs: [ create_release_body, build_windows_mingw_x64, build_windows_mingw_x64_debug, build_windows_mingw_x86, build_windows_mingw_x86_debug, build_windows_ucrt64_x64, build_windows_ucrt64_x64_debug, build_windows_msvc_x64, build_windows_msvc_x64_debug, build_windows_msvc_arm64, build_windows_msvc_arm64_debug, build_windows_msvc_x86, build_windows_msvc_x86_debug, build_linux_sdl2_x64, build_linux_sdl1_x64 ] # , build_macos_x64, build_macos_arm64
+    needs: [ create_release_body, build_windows_mingw_x64, build_windows_mingw_x86, build_windows_ucrt64_x64, build_windows_msvc_x64, build_windows_msvc_arm64, build_windows_msvc_x86, build_linux_sdl2_x64, build_linux_sdl1_x64 ] # , build_macos_x64, build_macos_arm64
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -896,21 +896,21 @@ jobs:
           name: ${{ env.WINDOWS_MINGW_X64_ARCHIVE_ARTIFACT }}
 
       # Windows MinGW x64 Debug
-      - name: Download Artifact (Windows MinGW x64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows MinGW x64 Debug) and Store in Step Outputs
-        id: store_windows_mingw_x64_debug
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows MinGW x64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows MinGW x64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows MinGW x64 Debug) and Store in Step Outputs
+#        id: store_windows_mingw_x64_debug
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MINGW_X64_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows MinGW x64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X64_DEBUG_ARCHIVE_ARTIFACT }}
 
       # Windows MinGW x86
       - name: Download Artifact (Windows MinGW x86)
@@ -931,22 +931,22 @@ jobs:
           name: ${{ env.WINDOWS_MINGW_X86_ARCHIVE_ARTIFACT }}
 
       # Windows MinGW x86 Debug
-      - name: Download Artifact (Windows MinGW x86 Debug)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows MinGW x86 Debug) and Store in Step Outputs
-        id: store_windows_mingw_x86_debug
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows MinGW x86 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows MinGW x86 Debug)
+#        continue-on-error: true
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows MinGW x86 Debug) and Store in Step Outputs
+#        id: store_windows_mingw_x86_debug
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MINGW_X86_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows MinGW x86 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MINGW_X86_DEBUG_ARCHIVE_ARTIFACT }}
 
       # Windows UCRT64 x64
       - name: Download Artifact (Windows UCRT64 x64)
@@ -966,21 +966,21 @@ jobs:
           name: ${{ env.WINDOWS_UCRT64_X64_ARCHIVE_ARTIFACT }}
 
       # Windows UCRT64 x64 Debug
-      - name: Download Artifact (Windows UCRT64 x64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows UCRT64 x64 Debug) and Store in Step Outputs
-        id: store_windows_ucrt64_x64_debug
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows UCRT64 x64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows UCRT64 x64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows UCRT64 x64 Debug) and Store in Step Outputs
+#        id: store_windows_ucrt64_x64_debug
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_UCRT64_X64_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows UCRT64 x64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_UCRT64_X64_DEBUG_ARCHIVE_ARTIFACT }}
 
       # Windows MSVC x64
       - name: Download Artifact (Windows MSVC x64)
@@ -1003,24 +1003,24 @@ jobs:
           name: ${{ env.WINDOWS_MSVC_X64_ARCHIVE_ARTIFACT }}
 
       # Windows MSVC x64 Debug
-      - name: Download Artifact (Windows MSVC x64 Debug)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows MSVC x64 Debug) and Store in Step Outputs
-        id: store_windows_msvc_x64_debug
-        continue-on-error: true
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows MSVC x64 Debug)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows MSVC x64 Debug)
+#        continue-on-error: true
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows MSVC x64 Debug) and Store in Step Outputs
+#        id: store_windows_msvc_x64_debug
+#        continue-on-error: true
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_X64_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows MSVC x64 Debug)
+#        continue-on-error: true
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X64_DEBUG_ARCHIVE_ARTIFACT }}
 
 
       # Windows MSVC ARM64
@@ -1041,21 +1041,21 @@ jobs:
           name: ${{ env.WINDOWS_MSVC_ARM64_ARCHIVE_ARTIFACT }}
 
       # Windows MSVC ARM64 Debug
-      - name: Download Artifact (Windows MSVC ARM64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows MSVC ARM64 Debug) and Store in Step Outputs
-        id: store_windows_msvc_arm64_debug
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows MSVC ARM64 Debug)
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows MSVC ARM64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows MSVC ARM64 Debug) and Store in Step Outputs
+#        id: store_windows_msvc_arm64_debug
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_ARM64_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows MSVC ARM64 Debug)
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_ARM64_DEBUG_ARCHIVE_ARTIFACT }}
 
       # Windows MSVC x86
       - name: Download Artifact (Windows MSVC x86)
@@ -1078,24 +1078,24 @@ jobs:
           name: ${{ env.WINDOWS_MSVC_X86_ARCHIVE_ARTIFACT }}
 
       # Windows MSVC x86 Debug
-      - name: Download Artifact (Windows MSVC x86 Debug)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}
-
-      - name: Extract Archive Path (Windows MSVC x86 Debug) and Store in Step Outputs
-        id: store_windows_msvc_x86_debug
-        continue-on-error: true
-        run: |
-          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH`
-          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
-
-      - name: Download Artifact with Archive (Windows MSVC x86 Debug)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT }}
+#      - name: Download Artifact (Windows MSVC x86 Debug)
+#        continue-on-error: true
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARTIFACT }}
+#
+#      - name: Extract Archive Path (Windows MSVC x86 Debug) and Store in Step Outputs
+#        id: store_windows_msvc_x86_debug
+#        continue-on-error: true
+#        run: |
+#          archive_path=`sed -E -n -e 's/archive_path= //p' $WINDOWS_MSVC_X86_DEBUG_ARTIFACT_PATH`
+#          echo "archive_path=$archive_path" >> $GITHUB_OUTPUT
+#
+#      - name: Download Artifact with Archive (Windows MSVC x86 Debug)
+#        continue-on-error: true
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: ${{ env.WINDOWS_MSVC_X86_DEBUG_ARCHIVE_ARTIFACT }}
 
       # Linux SDL2 x64
       - name: Download Artifact (Linux SDL2 x64)
@@ -1190,13 +1190,14 @@ jobs:
             ${{ steps.store_linux_sdl1_x64.outputs.archive_path }} \
             ${{ steps.store_windows_mingw_x64.outputs.archive_path }} \
             ${{ steps.store_windows_mingw_x86.outputs.archive_path }} \
-            ${{ steps.store_windows_mingw_x64_debug.outputs.archive_path }} \
-            ${{ steps.store_windows_mingw_x86_debug.outputs.archive_path }} \
             ${{ steps.store_windows_ucrt64_x64.outputs.archive_path }} \
-            ${{ steps.store_windows_ucrt64_x64_debug.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_x64.outputs.archive_path }} \
-            ${{ steps.store_windows_msvc_x64_debug.outputs.archive_path }} \
             ${{ steps.store_windows_msvc_arm64.outputs.archive_path }} \
-            ${{ steps.store_windows_msvc_arm64_debug.outputs.archive_path }} \
-            ${{ steps.store_windows_msvc_x86.outputs.archive_path }} \
-            ${{ steps.store_windows_msvc_x86_debug.outputs.archive_path }}
+            ${{ steps.store_windows_msvc_x86.outputs.archive_path }}
+          # Debug builds (disabled):
+          #            ${{ steps.store_windows_mingw_x64_debug.outputs.archive_path }}
+          #            ${{ steps.store_windows_mingw_x86_debug.outputs.archive_path }}
+          #            ${{ steps.store_windows_ucrt64_x64_debug.outputs.archive_path }}
+          #            ${{ steps.store_windows_msvc_x64_debug.outputs.archive_path }}
+          #            ${{ steps.store_windows_msvc_arm64_debug.outputs.archive_path }}
+          #            ${{ steps.store_windows_msvc_x86_debug.outputs.archive_path }}
