@@ -543,7 +543,7 @@
 #define MENU_EXIT                       	10012
 #define MENU_RESET                       	10013
 #define MENU_LOAD_IPSPATCH					10015
-#define MENU_LOAD_NEOGEOCD					10016
+#define MENU_LOAD_CDIMAGE					10016
 #define MENU_LOAD_ARCHIVE					10017
 #define MENU_MEMCARD_CREATE					10020
 #define MENU_MEMCARD_SELECT					10021
