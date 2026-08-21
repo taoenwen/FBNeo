@@ -374,7 +374,7 @@ typedef struct {
 		UINT32 vaddr;
 		UINT32 size;
 	} matrix;
-	INT32        eeprom_read_bits_remaining;
+	INT32  eeprom_read_bits_remaining;
 	gba_gpio_t   gpio;
 	gba_fcmini_t fcmini;
 } gba_cartridge_t;
