@@ -23,19 +23,15 @@ static inline INT32 gba_ppu_compute_max_fast_forward(gba_t* gba, bool render)
 	return 3 - ((gba->ppu.scan_clock) % 4);
 }
 
-static inline void gba_tick_ppu(gba_t* gba, bool render)
+static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
 {
-	if (SB_LIKELY(gba->ppu.fast_forward_ticks > 0)) {
-		gba->ppu.fast_forward_ticks--;
-		return;
-	}
-
+	bool render = emu->render_frame;
 	if (gba->ppu.scan_clock >= 280896) gba->ppu.scan_clock -= 280896;
 	INT32 lcd_y = (gba->ppu.scan_clock) / 1232;
 	INT32 lcd_x = ((gba->ppu.scan_clock) % 1232) / 4;
 	gba->ppu.scan_clock++;
-	gba->ppu.fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render) + 1;
-	gba->ppu.scan_clock += gba->ppu.fast_forward_ticks;
+	INT32 fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render) + 1;
+	gba->ppu.scan_clock += fast_forward_ticks;
 	if (lcd_x == 0 || lcd_x == GBA_LCD_HBLANK_START || lcd_x == GBA_LCD_HBLANK_END) {
 		UINT16 disp_stat  = gba_io_read16(gba, GBA_DISPSTAT) & ~0x7;
 		UINT16 vcount_cmp = SB_BFE(disp_stat, 8, 8);
@@ -607,6 +603,10 @@ static inline void gba_tick_ppu(gba_t* gba, bool render)
 			gba->framebuffer[p + 1] = g * 8 * (1.0 - screen_blend_factor) + gba->framebuffer[p + 1] * screen_blend_factor;
 		}
 	}
+
+	// next boundary: keep the absolute scanline grid regardless of dispatch lateness
+	gba_timing_deschedule(gba, &gba->ppu_event);
+	gba_timing_schedule(gba, &gba->ppu_event, fast_forward_ticks + 1 - (INT32)cycles_late);
 }
 
 #endif

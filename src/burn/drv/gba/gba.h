@@ -97,9 +97,27 @@ typedef struct {
 	char				rom_path[SB_FILE_PATH_SIZE];
 } sb_emu_state_t;
 
+struct gba_t;
 
+// Central event scheduler: intrusive list ordered by (when, priority)
+typedef struct gba_event_t {
+	struct gba_event_t*	next;
+	INT32				when;			// absolute master clock of the event
+	INT32				priority;		// lower fires first at the same time
+	void				(*callback)(struct gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
+	bool				active;
+} gba_event_t;
+
+typedef struct {
+	gba_event_t*		head;
+} gba_timing_t;
+
+#define GBA_EVENT_PRIORITY_TIMER	1
+#define GBA_EVENT_PRIORITY_PPU		2
+#define GBA_EVENT_PRIORITY_SIO		3
 
 #include "cpu.h"
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // MMIO Register listing from GBATEK (https://problemkaputt.de/gbatek.htm#gbamemorymap) //
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -404,7 +422,6 @@ typedef struct {
 		bool  wrote_bgy;
 	} aff[2];
 	UINT16 dispcnt_pipeline[3];
-	INT32  fast_forward_ticks;
 	float  ghosting_strength;
 	UINT32 mosaic_y_counter;
 } gba_ppu_t;
@@ -455,6 +472,7 @@ typedef struct {
 	float  capacitor_r;
 	gba_frame_sequencer_t sequencer;
 	UINT32 audio_clock;
+	INT32  sample_accum;		// cycles since the last audio batch
 } gba_audio_t;
 
 typedef struct {
@@ -497,9 +515,12 @@ typedef struct gba_t {
 	bool				activate_dmas;
 	bool				dma_wait_ppu;
 	gba_timer_t			timers[4];
-	UINT32				timer_ticks_before_event;
-	UINT32				deferred_timer_ticks;
-	UINT32				global_timer;
+	UINT32				global_timer;		// master clock driving the scheduler
+	UINT32				timer_settle_clock;	// master clock at the last timer settle
+	gba_timing_t			timing;
+	gba_event_t			timer_event;
+	gba_event_t			ppu_event;
+	gba_event_t			sio_event;
 	gba_audio_t			audio;
 	bool				prev_key_interrupt;
 	UINT32				first_target_buffer[GBA_LCD_W];
@@ -526,6 +547,86 @@ typedef struct {
 	bool  skip_bios_intro;
 	char  save_file_path[SB_FILE_PATH_SIZE];
 } gba_scratch_t;
+
+static inline void gba_timing_deschedule(gba_t* gba, gba_event_t* event)
+{
+	gba_event_t** previous = &gba->timing.head;
+	gba_event_t*  next     = gba->timing.head;
+	while (next) {
+		if (next == event) {
+			*previous     = next->next;
+			event->next   = NULL;
+			event->active = false;
+			return;
+		}
+		previous = &next->next;
+		next     = next->next;
+	}
+	event->active = false;
+}
+
+// when is relative to the current master clock; <= 0 means due immediately
+static inline void gba_timing_schedule(gba_t* gba, gba_event_t* event, INT32 when)
+{
+	if (event->active)
+		gba_timing_deschedule(gba, event);
+	event->when   = (INT32)gba->global_timer + when;
+	event->active = true;
+	gba_event_t** previous = &gba->timing.head;
+	gba_event_t*  next     = gba->timing.head;
+	while (next) {
+		INT32 next_when = next->when - event->when;
+		if (next_when > 0 || (next_when == 0 && next->priority > event->priority))
+			break;
+		previous = &next->next;
+		next     = next->next;
+	}
+	event->next = next;
+	*previous   = event;
+}
+
+// cycles until the head event (0 if due); large when nothing is scheduled
+static inline INT32 gba_timing_next(gba_t* gba)
+{
+	gba_event_t* next = gba->timing.head;
+	if (!next)
+		return 0x20000000;
+	INT32 when = next->when - (INT32)gba->global_timer;
+	return when > 0 ? when : 0;
+}
+
+// fires every event that is due at the current master clock, in (when, priority) order
+static inline void gba_timing_dispatch(gba_t* gba, sb_emu_state_t* emu)
+{
+	while (gba->timing.head) {
+		gba_event_t* next = gba->timing.head;
+		INT32 when = next->when - (INT32)gba->global_timer;
+		if (when > 0)
+			return;
+		gba->timing.head = next->next;
+		next->next   = NULL;
+		next->active = false;
+		next->callback(gba, emu, (UINT32)(-when));
+	}
+}
+
+// rebuilds the event list from the persisted event state (after a state load)
+static inline void gba_timing_rebuild(gba_t* gba)
+{
+	gba->timing.head   = NULL;
+	gba_event_t* events[3] = { &gba->timer_event, &gba->ppu_event, &gba->sio_event };
+	for (INT32 i = 0; i < 3; ++i) {
+		gba_event_t* event = events[i];
+		event->next = NULL;
+		if (!event->active)
+			continue;
+		event->active = false;
+		gba_timing_schedule(gba, event, event->when - (INT32)gba->global_timer);
+	}
+}
+
+void gba_timing_init(gba_t* gba);
+void gba_timing_rebind(gba_t* gba);
 
 #define GBA_WIDTH				240
 #define GBA_HEIGHT				160

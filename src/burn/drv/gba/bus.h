@@ -597,7 +597,23 @@ static inline bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 dat
 			gba_store16(gba, address_u32 + 2, (word_data >> 16) & 0xffff);
 			gba->timers[timer_off + 0].reload_value = gba->timers[timer_off + 0].pending_reload_value;
 		}
-		gba->timer_ticks_before_event = 0;
+		// settle at the next processed cycle, matching the forced horizon reset
+		gba_timing_schedule(gba, &gba->timer_event, 0);
+		return true;
+	} else if (address_u32 == GBA_SIOCNT) {
+		UINT32 sio_word = gba_io_read32(gba, GBA_SIOCNT);
+		sio_word = (sio_word & ~word_mask) | (word_data & word_mask);
+		gba_io_store32(gba, GBA_SIOCNT, sio_word);
+		if (word_mask & 0xffff) {
+			UINT16 siocnt         = gba_io_read16(gba, GBA_SIOCNT);
+			bool active           = SB_BFE(siocnt,  7, 1);
+			bool internal_clock   = SB_BFE(siocnt,  0, 1);
+			gba_timing_deschedule(gba, &gba->sio_event);
+			if (active && internal_clock) {
+				gba->sio.last_active = true;
+				gba_timing_schedule(gba, &gba->sio_event, GBA_SIO_TRANSFER_TICKS);
+			}
+		}
 		return true;
 	} else if (address_u32 == GBA_POSTFLG) {
 		//Only BIOS can update Post Flag and haltcnt

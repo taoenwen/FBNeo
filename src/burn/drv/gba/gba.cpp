@@ -34,8 +34,15 @@ static inline UINT16  gba_rom_read16(const gba_t* gba, UINT32 address);
 
 // timer.h
 static inline void                  gba_compute_timers(gba_t* gba);
-static inline void    gba_tick_timers(gba_t* gba);
+static inline void    gba_tick_interrupts(gba_t* gba);
 static inline void    gba_send_interrupt(gba_t* gba, INT32 pipe_stage, INT32 if_bit);
+
+// ppu.h
+static inline void    gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
+
+// sio.h
+#define GBA_SIO_TRANSFER_TICKS	(8 * 8)
+static inline void    gba_sio_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
 
 #include "gpio.h"
 #include "cart.h"
@@ -630,6 +637,13 @@ INT32 GbaCoreSaveState(const GbaCore *core, void *data, size_t size)
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_read);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_write);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, trigger_breakpoint);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, timer_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, timer_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, ppu_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, ppu_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, sio_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, sio_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t, 0, timing.head);
 #undef GBA_CLEAR_STATE_FIELD
 	return 0;
 }
@@ -642,6 +656,7 @@ INT32 GbaCoreLoadState(GbaCore *core, const void *data, size_t size, INT32 prese
 	memcpy(battery, core->state.mem.cart_backup, sizeof(battery));
 	memcpy(&core->state, data, sizeof(gba_t));
 	memcpy(core->state.mem.cart_backup, battery, sizeof(battery));
+	gba_timing_rebind(&core->state);
 	GbaCoreApplyCartridgeFeatures(core);
 	GbaCoreRebind(core);
 	if (!preserveAudio)
@@ -665,6 +680,122 @@ void gba_cpu_trigger_breakpoint(void* data)
 	gba_t* gba = (gba_t*)data;
 	gba->frame_in_progress = false;
 	gba->pause_after_frame = true;
+}
+
+void gba_timing_init(gba_t* gba)
+{
+	gba->timing.head            = NULL;
+	gba->timer_settle_clock     = gba->global_timer - 1;
+	gba->timer_event.next       = NULL;
+	gba->timer_event.when       = 0;
+	gba->timer_event.priority   = GBA_EVENT_PRIORITY_TIMER;
+	gba->timer_event.callback   = gba_timer_event;
+	gba->timer_event.active     = false;
+	gba->ppu_event.next         = NULL;
+	gba->ppu_event.when         = 0;
+	gba->ppu_event.priority     = GBA_EVENT_PRIORITY_PPU;
+	gba->ppu_event.callback     = gba_ppu_event;
+	gba->ppu_event.active       = false;
+	gba->sio_event.next         = NULL;
+	gba->sio_event.when         = 0;
+	gba->sio_event.priority     = GBA_EVENT_PRIORITY_SIO;
+	gba->sio_event.callback     = gba_sio_event;
+	gba->sio_event.active       = false;
+	gba_timing_schedule(gba, &gba->timer_event, 0);
+	gba_timing_schedule(gba, &gba->ppu_event, 0);
+}
+
+void gba_timing_rebind(gba_t* gba)
+{
+	gba->timer_event.priority = GBA_EVENT_PRIORITY_TIMER;
+	gba->timer_event.callback = gba_timer_event;
+	gba->ppu_event.priority   = GBA_EVENT_PRIORITY_PPU;
+	gba->ppu_event.callback   = gba_ppu_event;
+	gba->sio_event.priority   = GBA_EVENT_PRIORITY_SIO;
+	gba->sio_event.callback   = gba_sio_event;
+	gba_timing_rebuild(gba);
+}
+
+// lead-in length matching the per-cycle fast-forward horizon: the ppu settles on
+// its boundary, the timer one cycle past it; due events settle immediately
+static inline INT32 gba_timing_ff(gba_t* gba, INT32 ticks)
+{
+	INT32 ff = ticks;
+	if (gba->ppu_event.active) {
+		INT32 d = gba->ppu_event.when - (INT32)gba->global_timer;
+		if (d < 0)
+			d = 0;
+		if (d < ff)
+			ff = d;
+	}
+	if (gba->timer_event.active) {
+		INT32 d = gba->timer_event.when - (INT32)gba->global_timer;
+		d = d <= 0 ? 0 : d + 1;
+		if (d < ff)
+			ff = d;
+	}
+	return ff;
+}
+
+// advances the master clock by `ticks` cycles, firing every event that comes due
+// on the way.  Each cycle shifts the IF pipeline before its events fire, and
+// events landing exactly on the quantum end stay pending so the next iteration's
+// DMA/exec decision runs first, matching the per-cycle cadence.
+static inline void gba_advance(gba_t* gba, sb_emu_state_t* emu, INT32 ticks)
+{
+	INT32 advanced    = 0;
+	INT32 event_free  = gba_timing_ff(gba, ticks);
+	INT32 audio_pos   = event_free;
+	INT32 dma_on_pos  = -1;
+	INT32 shifted     = 0;
+	bool  dma_was_on  = gba->activate_dmas;
+	for (;;) {
+		// entering cycle `advanced`: its pipeline shift precedes its events
+		if (shifted == advanced && advanced < ticks) {
+			if (SB_UNLIKELY(gba->active_if_pipe_stages))
+				gba_tick_interrupts(gba);
+			++shifted;
+		}
+		if (advanced == audio_pos) {
+			// audio batch point: end of the event-free lead-in, full span credited
+			audio_pos = -1;
+			gba->audio.sample_accum += ticks;
+			if (gba->audio.sample_accum >= 512) {
+				double delta_t = (double)gba->audio.sample_accum / (16 * 1024 * 1024);
+				gba_tick_audio(gba, emu, delta_t, gba->audio.sample_accum);
+				gba->audio.sample_accum = 0;
+			}
+		}
+		if (advanced < ticks) {
+			gba_timing_dispatch(gba, emu);
+			if (dma_on_pos < 0 && !dma_was_on && gba->activate_dmas)
+				dma_on_pos = advanced;
+		}
+		if (advanced >= ticks)
+			break;
+		INT32 until = gba_timing_next(gba);
+		INT32 step  = ticks - advanced;
+		if (until < step)
+			step = until;
+		if (audio_pos >= 0 && audio_pos - advanced < step)
+			step = audio_pos - advanced;
+		if (step < 1)
+			step = 1;
+		gba->global_timer += step;
+		advanced += step;
+		// batch the shifts of the cycles the step passed over
+		while (shifted < advanced) {
+			if (SB_UNLIKELY(gba->active_if_pipe_stages))
+				gba_tick_interrupts(gba);
+			++shifted;
+		}
+	}
+	// mid-span DMA activation: the per-cycle cascade nets residual 0 and
+	// last_cpu_tick equal to the event-bearing tail length
+	if (dma_on_pos >= 0 && dma_on_pos <= ticks - 2) {
+		gba->residual_dma_ticks = 0;
+		gba->last_cpu_tick      = ticks - event_free;
+	}
 }
 
 void gba_ptrs_init(gba_t* gba, gba_scratch_t* scratch, UINT8* rom_data)
@@ -702,7 +833,6 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 	gba->tilt_sensor.pending_x = gba_tilt_sample(emu->joy.tilt_x);
 	gba->tilt_sensor.pending_y = gba_tilt_sample(emu->joy.tilt_y);
 	gba->ppu.ghosting_strength = emu->screen_ghosting_strength;
-	static INT32 audio_accum = 0;	// batch audio to ~every 512 cycles (per-instr double div removed)
 	while (gba->frame_in_progress) {
 		INT32 ticks = gba->activate_dmas ? gba_tick_dma(gba, gba->last_cpu_tick) : 0;
 		if (!ticks && gba->residual_dma_ticks) {
@@ -722,44 +852,18 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 						arm7_process_interrupts(&gba->cpu);
 				}
 			}
-			arm7_exec_instruction(&gba->cpu);
-			gba->last_cpu_tick = ticks = gba->mem.requests + gba->cpu.i_cycles;
-		}
-		gba_tick_sio(gba);
-		INT32 ppu_fast_forward   = gba->ppu.fast_forward_ticks;
-		INT32 timer_fast_forward = gba->timer_ticks_before_event - gba->deferred_timer_ticks;
-		INT32 fast_forward_ticks = ppu_fast_forward < timer_fast_forward ? ppu_fast_forward : timer_fast_forward;
-		if (fast_forward_ticks > ticks) {
-			if (gba->cpu.wait_for_interrupt)
-				ticks = fast_forward_ticks;
-			else
-				fast_forward_ticks = ticks;
-		}
-		if (SB_UNLIKELY(gba->active_if_pipe_stages)) {
-			for (INT32 i = 0;i < fast_forward_ticks;++i)
-				gba_tick_interrupts(gba);
-		}
-		// RTC advances with host wall time, not emulated master clocks
-		gba->deferred_timer_ticks   += fast_forward_ticks;
-		gba->ppu.fast_forward_ticks -= fast_forward_ticks;
-		ticks -= fast_forward_ticks > ticks ? ticks : fast_forward_ticks;
-		audio_accum += ticks + fast_forward_ticks;
-		if (audio_accum >= 512) {
-			double delta_t = (double)audio_accum / (16 * 1024 * 1024);
-			gba_tick_audio(gba, emu, delta_t, audio_accum);
-			audio_accum = 0;
-		}
-
-		bool last_activate_dmas = gba->activate_dmas;
-		for (INT32 t = 0;t < ticks;++t) {
-			if (gba->activate_dmas && !last_activate_dmas) {
-				gba->residual_dma_ticks = ticks - t - 1;
-				gba->last_cpu_tick = t + 1;
+			if (gba->cpu.wait_for_interrupt && !gba->cpu.phased_op_id) {
+				// halted: idle instruction, then run to the next event horizon
+				gba->last_cpu_tick = 1;
+				ticks              = gba_timing_next(gba);
+				if (ticks < 1)
+					ticks = 1;
+			} else {
+				arm7_exec_instruction(&gba->cpu);
+				gba->last_cpu_tick = ticks = gba->mem.requests + gba->cpu.i_cycles;
 			}
-			gba_tick_interrupts(gba);
-			gba_tick_timers(gba);
-			gba_tick_ppu(gba, emu->render_frame);
 		}
+		gba_advance(gba, emu, ticks);
 	}
 	gba_gpio_update_rumble(gba);
 	emu->joy.rumble = gba->cart.gpio.rumble;
