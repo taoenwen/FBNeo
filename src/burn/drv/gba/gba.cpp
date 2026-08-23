@@ -67,6 +67,7 @@ struct GbaCore {
 	UINT8			externalBios[16 * 1024];
 	bool			externalBiosLoaded;
 	bool			forceCustomBios;
+	bool			perPixelRender;
 	UINT32			cartridgeFeatures;
 	UINT8			cartridgeBackupType;
 	double			sourceRate;
@@ -432,6 +433,14 @@ void GbaCoreSetBiosMode(GbaCore *core, INT32 forceCustomBios)
 	core->forceCustomBios = forceCustomBios != 0;
 }
 
+void GbaCoreSetRenderMode(GbaCore *core, INT32 perPixelMode)
+{
+	if (core == NULL)
+		return;
+	core->perPixelRender = perPixelMode != 0;
+	core->state.ppu.render_per_pixel = core->perPixelRender;
+}
+
 INT32 GbaCoreReset(GbaCore *core)
 {
 	if (core == NULL || core->rom == NULL)
@@ -454,6 +463,7 @@ INT32 GbaCoreReset(GbaCore *core)
 	core->state.rtc.rtc_seconds  = rtcSeconds;
 	core->state.rtc.host_seconds = rtcHostSeconds;
 	core->state.rtc.status       = rtcStatus;
+	core->state.ppu.render_per_pixel = core->perPixelRender;
 	gba_rtc_transport_reset(&core->state.rtc);
 	core->state.rtc.last_pins    = 0;
 	GbaCoreApplyCartridgeFeatures(core);
@@ -657,6 +667,7 @@ INT32 GbaCoreLoadState(GbaCore *core, const void *data, size_t size, INT32 prese
 	memcpy(battery, core->state.mem.cart_backup, sizeof(battery));
 	memcpy(&core->state, data, sizeof(gba_t));
 	memcpy(core->state.mem.cart_backup, battery, sizeof(battery));
+	core->state.ppu.render_per_pixel = core->perPixelRender;
 	gba_timing_rebind(&core->state);
 	GbaCoreApplyCartridgeFeatures(core);
 	GbaCoreRebind(core);

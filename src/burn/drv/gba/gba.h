@@ -424,6 +424,7 @@ typedef struct {
 	UINT16 dispcnt_pipeline[3];
 	float  ghosting_strength;
 	UINT32 mosaic_y_counter;
+	bool   render_per_pixel;	// per-pixel sampling vs whole-scanline render
 } gba_ppu_t;
 
 typedef struct {
@@ -651,8 +652,9 @@ enum GbaButton {
 };
 
 enum GbaDipSwitch {
-	GBA_DIPSWITCH_01 = 0,
-	GBA_DIPSWITCH_02,
+	GBA_DIPSWITCH_01 = 0,	// video rendering: 0 = scanline, 1 = per-pixel
+	GBA_DIPSWITCH_02,		// BIOS selection:  0 = Optional, 1 = custom
+	GBA_DIPSWITCH_03,		// per-game patch
 };
 
 enum GbaCartridgeFeature {
@@ -691,6 +693,7 @@ INT32  GbaCoreLoadRom(GbaCore *core, const UINT8 *rom, size_t romSize, const Gba
 INT32  GbaCoreWriteRom(GbaCore *core, UINT32 offset, const UINT8 *data, UINT32 length);
 INT32  GbaCoreLoadBios(GbaCore *core, const UINT8 *bios, size_t biosSize);
 void   GbaCoreSetBiosMode(GbaCore *core, INT32 forceCustomBios);
+void   GbaCoreSetRenderMode(GbaCore *core, INT32 perPixelMode);
 INT32  GbaCoreReset(GbaCore *core);
 void   GbaCoreSetInput(GbaCore *core, const GbaInput *input);
 INT32  GbaCoreConfigureAudio(GbaCore *core, double sourceRate, INT32 outputFrames, INT32 captureAudio);
