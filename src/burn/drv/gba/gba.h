@@ -531,6 +531,7 @@ typedef struct gba_t {
 	// This array acts as a FIFO to keep track of that. 
 	UINT16				pipelined_if[5];
 	INT32				active_if_pipe_stages;
+	bool				interrupt_pending;	// cached (IE & IF) with IME enabled
 	INT32				last_cpu_tick;
 	INT32				residual_dma_ticks;
 	bool				stop_mode;

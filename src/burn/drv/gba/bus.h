@@ -139,6 +139,13 @@ static inline UINT32 gba_io_read32(gba_t* gba, UINT32 baddr)
 	return *(UINT32*)(gba->mem.io + (baddr & 0xfff));
 }
 
+// refreshes the cached interrupt poll flag used once per instruction
+static inline void gba_update_interrupt_pending(gba_t* gba)
+{
+	gba->interrupt_pending = (gba_io_read16(gba, GBA_IE) & gba_io_read16(gba, GBA_IF)) != 0
+		&& (gba_io_read32(gba, GBA_IME) & 1);
+}
+
 static inline void gba_recompute_waitstate_table(gba_t* gba, UINT16 waitcnt)
 {
 	// TODO: Make the waitstate for the ROM configureable
@@ -566,6 +573,7 @@ static inline bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 dat
 		IF &= ~((word_data) >> 16);
 		gba_io_store16(gba, GBA_IE, IE);
 		gba_io_store16(gba, GBA_IF, IF);
+		gba_update_interrupt_pending(gba);
 
 		return true;
 	} else if (address_u32 == GBA_IF) {
@@ -573,6 +581,12 @@ static inline bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 dat
 		UINT16 IF = gba_io_read16(gba, GBA_IF);
 		IF &= ~(word_data & word_mask);
 		gba_io_store16(gba, GBA_IF, IF);
+		gba_update_interrupt_pending(gba);
+		return true;
+	} else if (address_u32 == GBA_IME) {
+		UINT32 ime = gba_io_read32(gba, GBA_IME);
+		gba_io_store32(gba, GBA_IME, (ime & ~word_mask) | (word_data & word_mask));
+		gba_update_interrupt_pending(gba);
 		return true;
 	} else if (address_u32 == GBA_SOUNDCNT_L) {
 		if (word_mask & 0xffff0000) {

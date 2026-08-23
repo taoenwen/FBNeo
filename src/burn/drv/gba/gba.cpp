@@ -23,6 +23,7 @@ static inline void    gba_store32(gba_t* gba, UINT32 baddr, UINT32 data);
 static inline void    gba_store16(gba_t* gba, UINT32 baddr, UINT32 data);
 static inline void    gba_store8(gba_t* gba, UINT32 baddr, UINT32 data);
 static inline void    gba_io_store16(gba_t* gba, UINT32 baddr, UINT16 data);
+static inline void    gba_update_interrupt_pending(gba_t* gba);
 static inline UINT32* gba_dword_lookup(gba_t* gba, UINT32 baddr, INT32 req_type);
 static inline void    gba_process_mmio_read(gba_t* gba, UINT32 address);
 static inline bool    gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT32 req_size_bytes);
@@ -703,6 +704,7 @@ void gba_timing_init(gba_t* gba)
 	gba->sio_event.active       = false;
 	gba_timing_schedule(gba, &gba->timer_event, 0);
 	gba_timing_schedule(gba, &gba->ppu_event, 0);
+	gba_update_interrupt_pending(gba);
 }
 
 void gba_timing_rebind(gba_t* gba)
@@ -714,6 +716,7 @@ void gba_timing_rebind(gba_t* gba)
 	gba->sio_event.priority   = GBA_EVENT_PRIORITY_SIO;
 	gba->sio_event.callback   = gba_sio_event;
 	gba_timing_rebuild(gba);
+	gba_update_interrupt_pending(gba);
 }
 
 // lead-in length matching the per-cycle fast-forward horizon: the ppu settles on
@@ -743,8 +746,23 @@ static inline INT32 gba_timing_ff(gba_t* gba, INT32 ticks)
 // DMA/exec decision runs first, matching the per-cycle cadence.
 static inline void gba_advance(gba_t* gba, sb_emu_state_t* emu, INT32 ticks)
 {
+	INT32 event_free = gba_timing_ff(gba, ticks);
+	if (ticks <= event_free) {
+		// event-free span: no dispatch, so shifts and audio settle in one batch
+		gba->global_timer += ticks;
+		if (gba->active_if_pipe_stages) {
+			for (INT32 i = 0; i < ticks; ++i)
+				gba_tick_interrupts(gba);
+		}
+		gba->audio.sample_accum += ticks;
+		if (gba->audio.sample_accum >= 512) {
+			double delta_t = (double)gba->audio.sample_accum / (16 * 1024 * 1024);
+			gba_tick_audio(gba, emu, delta_t, gba->audio.sample_accum);
+			gba->audio.sample_accum = 0;
+		}
+		return;
+	}
 	INT32 advanced    = 0;
-	INT32 event_free  = gba_timing_ff(gba, ticks);
 	INT32 audio_pos   = event_free;
 	INT32 dma_on_pos  = -1;
 	INT32 shifted     = 0;
@@ -783,11 +801,15 @@ static inline void gba_advance(gba_t* gba, sb_emu_state_t* emu, INT32 ticks)
 			step = 1;
 		gba->global_timer += step;
 		advanced += step;
-		// batch the shifts of the cycles the step passed over
-		while (shifted < advanced) {
-			if (SB_UNLIKELY(gba->active_if_pipe_stages))
+		// batch the shifts of the cycles the step passed over; no event fires
+		// inside the batch so an empty pipeline stays empty
+		if (gba->active_if_pipe_stages) {
+			while (shifted < advanced) {
 				gba_tick_interrupts(gba);
-			++shifted;
+				++shifted;
+			}
+		} else {
+			shifted = advanced;
 		}
 	}
 	// mid-span DMA activation: the per-cycle cascade nets residual 0 and
@@ -843,14 +865,8 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 			gba->cpu.i_cycles = 0;
 			gba->mem.requests = 0;
 			if (!gba->cpu.phased_op_id) {
-				UINT16 int_if = gba_io_read16(gba, GBA_IF);
-				if (SB_UNLIKELY(int_if)) {
-					int_if &= gba_io_read16(gba, GBA_IE);
-					UINT32 ime = gba_io_read32(gba, GBA_IME);
-					int_if *= SB_BFE(ime, 0, 1);
-					if (int_if)
-						arm7_process_interrupts(&gba->cpu);
-				}
+				if (SB_UNLIKELY(gba->interrupt_pending))
+					arm7_process_interrupts(&gba->cpu);
 			}
 			if (gba->cpu.wait_for_interrupt && !gba->cpu.phased_op_id) {
 				// halted: idle instruction, then run to the next event horizon

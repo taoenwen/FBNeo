@@ -122,6 +122,7 @@ static inline void gba_tick_interrupts(gba_t* gba)
 			UINT16 if_val = gba_io_read16(gba, GBA_IF);
 			if_val |= if_bit;
 			gba_io_store16(gba, GBA_IF, if_val);
+			gba_update_interrupt_pending(gba);
 		}
 		gba->pipelined_if[0] = gba->pipelined_if[1];
 		gba->pipelined_if[1] = gba->pipelined_if[2];
