@@ -10,14 +10,14 @@
 #include "burn.h"
 #else
 #include <stdint.h>
-typedef uint8_t		UINT8;
-typedef int8_t		INT8;
-typedef int16_t		INT16;
-typedef uint16_t	UINT16;
-typedef int32_t		INT32;
-typedef uint32_t	UINT32;
-typedef int64_t		INT64;
-typedef uint64_t	UINT64;
+typedef uint8_t  UINT8;
+typedef int8_t   INT8;
+typedef int16_t  INT16;
+typedef uint16_t UINT16;
+typedef int32_t  INT32;
+typedef uint32_t UINT32;
+typedef int64_t  INT64;
+typedef uint64_t UINT64;
 #endif
 #include <stddef.h>
 #include <stdbool.h>
@@ -81,20 +81,20 @@ static inline UINT32 sb_ring_buffer_size(sb_ring_buffer_t* buff)
 }
 
 typedef struct {
-	INT32				run_mode;
-	bool				rom_loaded;
-	sb_joy_t			joy;
-	bool				render_frame;
-	bool				capture_audio;
-	double				audio_sample_rate;
-	sb_ring_buffer_t	audio_ring_buff;
-	char				save_file_path[SB_FILE_PATH_SIZE];
-	float				screen_ghosting_strength;
-	size_t				rom_size;
-	UINT8*				rom_data;
-	const UINT8*		bios_data;
-	size_t				bios_size;
-	char				rom_path[SB_FILE_PATH_SIZE];
+	INT32  run_mode;
+	bool   rom_loaded;
+	sb_joy_t joy;
+	bool   render_frame;
+	bool   capture_audio;
+	double audio_sample_rate;
+	sb_ring_buffer_t audio_ring_buff;
+	char   save_file_path[SB_FILE_PATH_SIZE];
+	float  screen_ghosting_strength;
+	size_t rom_size;
+	UINT8* rom_data;
+	const UINT8* bios_data;
+	size_t bios_size;
+	char   rom_path[SB_FILE_PATH_SIZE];
 } sb_emu_state_t;
 
 struct gba_t;
@@ -102,14 +102,14 @@ struct gba_t;
 // Central event scheduler: intrusive list ordered by (when, priority)
 typedef struct gba_event_t {
 	struct gba_event_t*	next;
-	INT32				when;			// absolute master clock of the event
-	INT32				priority;		// lower fires first at the same time
-	void				(*callback)(struct gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
-	bool				active;
+	INT32 when;			// absolute master clock of the event
+	INT32 priority;		// lower fires first at the same time
+	void  (*callback)(struct gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
+	bool  active;
 } gba_event_t;
 
 typedef struct {
-	gba_event_t*		head;
+	gba_event_t* head;
 } gba_timing_t;
 
 #define GBA_EVENT_PRIORITY_TIMER	1
@@ -504,43 +504,43 @@ typedef struct {
 } gba_tilt_sensor_t;
 
 typedef struct gba_t {
-	gba_mem_t			mem;
-	arm7_t				cpu;
-	gba_cartridge_t		cart;
-	gba_ppu_t			ppu;
-	gba_rtc_t			rtc;
-	gba_dma_t			dma[4];
-	gba_sio_t			sio;
+	gba_mem_t mem;
+	arm7_t    cpu;
+	gba_cartridge_t cart;
+	gba_ppu_t ppu;
+	gba_rtc_t rtc;
+	gba_dma_t dma[4];
+	gba_sio_t sio;
 	//There is a 2 cycle penalty when the CPU takes over from the DMA
-	bool				last_transaction_dma;
-	bool				activate_dmas;
-	bool				dma_wait_ppu;
-	gba_timer_t			timers[4];
-	UINT32				global_timer;		// master clock driving the scheduler
-	UINT32				timer_settle_clock;	// master clock at the last timer settle
-	gba_timing_t			timing;
-	gba_event_t			timer_event;
-	gba_event_t			ppu_event;
-	gba_event_t			sio_event;
-	gba_audio_t			audio;
-	bool				prev_key_interrupt;
-	UINT32				first_target_buffer[GBA_LCD_W];
-	UINT32				second_target_buffer[GBA_LCD_W];
-	UINT8				window[GBA_LCD_W];
-	UINT8*				framebuffer;
+	bool last_transaction_dma;
+	bool activate_dmas;
+	bool dma_wait_ppu;
+	gba_timer_t timers[4];
+	UINT32 global_timer;		// master clock driving the scheduler
+	UINT32 timer_settle_clock;	// master clock at the last timer settle
+	gba_timing_t timing;
+	gba_event_t  timer_event;
+	gba_event_t  ppu_event;
+	gba_event_t  sio_event;
+	gba_audio_t  audio;
+	bool   prev_key_interrupt;
+	UINT32 first_target_buffer[GBA_LCD_W];
+	UINT32 second_target_buffer[GBA_LCD_W];
+	UINT8  window[GBA_LCD_W];
+	UINT8* framebuffer;
 	// Some HW has up to a 4 cycle delay before its IF propagates. 
 	// This array acts as a FIFO to keep track of that. 
-	UINT16				pipelined_if[5];
-	INT32				active_if_pipe_stages;
-	bool				interrupt_pending;	// cached (IE & IF) with IME enabled
-	INT32				last_cpu_tick;
-	INT32				residual_dma_ticks;
-	bool				stop_mode;
-	bool				frame_in_progress;
-	bool				pause_after_frame;
-	gba_solar_sensor_t	solar_sensor;
-	gba_gyro_sensor_t	gyro_sensor;
-	gba_tilt_sensor_t	tilt_sensor;
+	UINT16 pipelined_if[5];
+	INT32  active_if_pipe_stages;
+	bool   interrupt_pending;	// cached (IE & IF) with IME enabled
+	INT32  last_cpu_tick;
+	INT32  residual_dma_ticks;
+	bool   stop_mode;
+	bool   frame_in_progress;
+	bool   pause_after_frame;
+	gba_solar_sensor_t solar_sensor;
+	gba_gyro_sensor_t  gyro_sensor;
+	gba_tilt_sensor_t  tilt_sensor;
 } gba_t;
 
 typedef struct {
@@ -653,7 +653,7 @@ enum GbaButton {
 
 enum GbaDipSwitch {
 	GBA_DIPSWITCH_01 = 0,	// video rendering: 0 = scanline, 1 = per-pixel
-	GBA_DIPSWITCH_02,		// BIOS selection:  0 = Optional, 1 = custom
+	GBA_DIPSWITCH_02,		// BIOS selection:  0 = optional, 1 = custom
 	GBA_DIPSWITCH_03,		// per-game patch
 };
 

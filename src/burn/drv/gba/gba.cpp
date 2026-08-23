@@ -58,20 +58,20 @@ void gba_cpu_trigger_breakpoint(void* data);
 void gba_ptrs_init(gba_t* gba, gba_scratch_t* scratch, UINT8* rom_data);
 void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch);
 struct GbaCore {
-	gba_t			state;
-	gba_scratch_t	scratch;
-	sb_emu_state_t	host;
-	UINT8*			rom;
-	size_t			romSize;
-	bool			ownsRom;
-	UINT8			externalBios[16 * 1024];
-	bool			externalBiosLoaded;
-	bool			forceCustomBios;
-	bool			perPixelRender;
-	UINT32			cartridgeFeatures;
-	UINT8			cartridgeBackupType;
-	double			sourceRate;
-	INT32			outputFrames;
+	gba_t state;
+	gba_scratch_t  scratch;
+	sb_emu_state_t host;
+	UINT8* rom;
+	size_t romSize;
+	bool   ownsRom;
+	UINT8  externalBios[16 * 1024];
+	bool   externalBiosLoaded;
+	bool   forceCustomBios;
+	bool   perPixelRender;
+	UINT32 cartridgeFeatures;
+	UINT8  cartridgeBackupType;
+	double sourceRate;
+	INT32  outputFrames;
 };
 
 struct GbaCartridgeProfile {
@@ -317,9 +317,9 @@ static void GbaCoreApplyCartridgeFeatures(GbaCore *core)
 static void GbaCoreApplyInput(GbaCore *core, const GbaInput *input)
 {
 	memset(core->host.joy.inputs, 0, sizeof(core->host.joy.inputs));
-	core->host.joy.gyro_z                = 0;
-	core->host.joy.tilt_x                = 0;
-	core->host.joy.tilt_y                = 0;
+	core->host.joy.gyro_z = 0;
+	core->host.joy.tilt_x = 0;
+	core->host.joy.tilt_y = 0;
 	if (input == NULL)
 		return;
 	core->host.joy.inputs[SE_KEY_A     ] = (input->buttons >> GBA_BUTTON_A     ) & 1;
@@ -648,13 +648,13 @@ INT32 GbaCoreSaveState(const GbaCore *core, void *data, size_t size)
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_read);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, coprocessor_write);
 	GBA_CLEAR_STATE_FIELD(arm7_t,    cpu, trigger_breakpoint);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, timer_event.next);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, timer_event.callback);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, ppu_event.next);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, ppu_event.callback);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, sio_event.next);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, sio_event.callback);
-	GBA_CLEAR_STATE_FIELD(gba_t, 0, timing.head);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   timer_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   timer_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   ppu_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   ppu_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   sio_event.next);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   sio_event.callback);
+	GBA_CLEAR_STATE_FIELD(gba_t,     0,   timing.head);
 #undef GBA_CLEAR_STATE_FIELD
 	return 0;
 }
@@ -682,7 +682,7 @@ void GbaCoreRebind(GbaCore *core)
 		return;
 	core->host.rom_data  = core->rom;
 	core->host.rom_size  = core->romSize;
-	core->host.bios_data = (core->externalBiosLoaded && !core->forceCustomBios) ? core->externalBios : NULL;
+	core->host.bios_data = (core->externalBiosLoaded && !core->forceCustomBios) ? core->externalBios         : NULL;
 	core->host.bios_size = (core->externalBiosLoaded && !core->forceCustomBios) ? sizeof(core->externalBios) : 0;
 	gba_ptrs_init(&core->state, &core->scratch, core->rom);
 	core->state.cpu.trigger_breakpoint = gba_cpu_trigger_breakpoint;
@@ -696,25 +696,25 @@ void gba_cpu_trigger_breakpoint(void* data)
 
 void gba_timing_init(gba_t* gba)
 {
-	gba->timing.head            = NULL;
-	gba->timer_settle_clock     = gba->global_timer - 1;
-	gba->timer_event.next       = NULL;
-	gba->timer_event.when       = 0;
-	gba->timer_event.priority   = GBA_EVENT_PRIORITY_TIMER;
-	gba->timer_event.callback   = gba_timer_event;
-	gba->timer_event.active     = false;
-	gba->ppu_event.next         = NULL;
-	gba->ppu_event.when         = 0;
-	gba->ppu_event.priority     = GBA_EVENT_PRIORITY_PPU;
-	gba->ppu_event.callback     = gba_ppu_event;
-	gba->ppu_event.active       = false;
-	gba->sio_event.next         = NULL;
-	gba->sio_event.when         = 0;
-	gba->sio_event.priority     = GBA_EVENT_PRIORITY_SIO;
-	gba->sio_event.callback     = gba_sio_event;
-	gba->sio_event.active       = false;
+	gba->timing.head          = NULL;
+	gba->timer_settle_clock   = gba->global_timer - 1;
+	gba->timer_event.next     = NULL;
+	gba->timer_event.when     = 0;
+	gba->timer_event.priority = GBA_EVENT_PRIORITY_TIMER;
+	gba->timer_event.callback = gba_timer_event;
+	gba->timer_event.active   = false;
+	gba->ppu_event.next       = NULL;
+	gba->ppu_event.when       = 0;
+	gba->ppu_event.priority   = GBA_EVENT_PRIORITY_PPU;
+	gba->ppu_event.callback   = gba_ppu_event;
+	gba->ppu_event.active     = false;
+	gba->sio_event.next       = NULL;
+	gba->sio_event.when       = 0;
+	gba->sio_event.priority   = GBA_EVENT_PRIORITY_SIO;
+	gba->sio_event.callback   = gba_sio_event;
+	gba->sio_event.active     = false;
 	gba_timing_schedule(gba, &gba->timer_event, 0);
-	gba_timing_schedule(gba, &gba->ppu_event, 0);
+	gba_timing_schedule(gba, &gba->ppu_event,   0);
 	gba_update_interrupt_pending(gba);
 }
 
@@ -833,18 +833,18 @@ static inline void gba_advance(gba_t* gba, sb_emu_state_t* emu, INT32 ticks)
 
 void gba_ptrs_init(gba_t* gba, gba_scratch_t* scratch, UINT8* rom_data)
 {
-	gba->framebuffer      = scratch->framebuffer;
-	gba->mem.bios         = scratch->bios;
-	gba->mem.cart_rom     = rom_data;
-	gba->cpu.read8        = arm7_read8;
-	gba->cpu.read16       = arm7_read16;
-	gba->cpu.read32       = arm7_read32;
-	gba->cpu.read16_seq   = arm7_read16_seq;
-	gba->cpu.read32_seq   = arm7_read32_seq;
-	gba->cpu.write8       = arm7_write8;
-	gba->cpu.write16      = arm7_write16;
-	gba->cpu.write32      = arm7_write32;
-	gba->cpu.user_data    = gba;
+	gba->framebuffer    = scratch->framebuffer;
+	gba->mem.bios       = scratch->bios;
+	gba->mem.cart_rom   = rom_data;
+	gba->cpu.read8      = arm7_read8;
+	gba->cpu.read16     = arm7_read16;
+	gba->cpu.read32     = arm7_read32;
+	gba->cpu.read16_seq = arm7_read16_seq;
+	gba->cpu.read32_seq = arm7_read32_seq;
+	gba->cpu.write8     = arm7_write8;
+	gba->cpu.write16    = arm7_write16;
+	gba->cpu.write32    = arm7_write32;
+	gba->cpu.user_data  = gba;
 }
 
 void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
@@ -861,7 +861,7 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 		solar_value = 1.00;
 	if (!(solar_value > 0.00))
 		solar_value = 0.00;
-	gba->solar_sensor.pending_value = 0xE9 - solar_value * (0xE9 - 0x32);	// latched into value when the game resets the sensor
+	gba->solar_sensor.pending_value = 0xE9 - solar_value * (0xe9 - 0x32);	// latched into value when the game resets the sensor
 	gba->gyro_sensor.pending_sample = gba_gyro_sample(emu->joy.gyro_z);
 	gba->tilt_sensor.pending_x = gba_tilt_sample(emu->joy.tilt_x);
 	gba->tilt_sensor.pending_y = gba_tilt_sample(emu->joy.tilt_y);
