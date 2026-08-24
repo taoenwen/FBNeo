@@ -549,6 +549,10 @@ static inline void gba_process_mmio_read(gba_t* gba, UINT32 address)
 	// Force recomputing timers on timer read
 	if (address >= GBA_TM0CNT_L && address <= GBA_TM3CNT_H)
 		gba_compute_timers(gba);
+	// Derive DISPSTAT/VCOUNT from the current beam position: between PPU
+	// events the io registers hold the stale boundary snapshot
+	else if (address >= GBA_DISPSTAT && address <= GBA_VCOUNT)
+		gba_ppu_refresh_status(gba);
 }
 
 static inline bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 data, INT32 req_size_bytes)

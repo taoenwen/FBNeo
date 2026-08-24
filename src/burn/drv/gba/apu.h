@@ -602,6 +602,16 @@ static inline void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, double delt
 	}
 }
 
+// Scheduler-driven audio settle, replacing the old 512-cycle batch inside
+// gba_advance.  The cadence self-corrects with cycles_late so the absolute
+// 512-cycle grid is preserved across late dispatches.
+#define GBA_AUDIO_EVENT_INTERVAL 512
+static inline void gba_audio_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
+{
+	gba_tick_audio(gba, emu, (double)GBA_AUDIO_EVENT_INTERVAL / (16 * 1024 * 1024), GBA_AUDIO_EVENT_INTERVAL);
+	gba_timing_schedule(gba, &gba->audio_event, GBA_AUDIO_EVENT_INTERVAL - (INT32)cycles_late);
+}
+
 #undef sb_compute_next_sweep_freq
 #undef sb_tick_frame_sweep
 #undef sb_tick_frame_seq

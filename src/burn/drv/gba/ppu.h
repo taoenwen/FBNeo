@@ -760,6 +760,36 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 	}
 }
 
+//On-read refresh of DISPSTAT/VCOUNT for CPU MMIO reads.  scan_clock and
+//ppu_event.when advance in lockstep (both move by the same amount each event),
+//so the current beam position is scan_clock - (when - global_timer): between
+//PPU events the io registers would otherwise hold the stale boundary snapshot.
+//Only the status bits are recomputed; the IRQ-enable/vcount-setting bits are
+//preserved.  Internal reads via gba_io_read16 are NOT routed here, so the
+//event's own logic and the DMA trigger windows keep their boundary semantics.
+static inline void gba_ppu_refresh_status(gba_t* gba)
+{
+	if (!gba->ppu_event.active)
+		return;
+	INT32 remaining = (INT32)(gba->ppu_event.when - gba->global_timer);
+	if (remaining < 0)
+		remaining = 0;
+	INT32 beam = (INT32)gba->ppu.scan_clock - remaining;
+	if (beam < 0)
+		beam += 280896;
+	INT32 lcd_y = beam / 1232;
+	INT32 lcd_x = (beam % 1232) / 4;
+	INT32 vcount = (lcd_y + (lcd_x >= GBA_LCD_HBLANK_END)) % 228;
+	bool   vblank = lcd_y >= 160 && lcd_y < 227;
+	bool   hblank = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
+	UINT16 disp_stat = gba_io_read16(gba, GBA_DISPSTAT) & ~0x7;
+	disp_stat |= vblank ? 0x1 : 0;
+	disp_stat |= hblank ? 0x2 : 0;
+	disp_stat |= vcount == SB_BFE(disp_stat, 8, 8) ? 0x4 : 0;
+	gba_io_store16(gba, GBA_DISPSTAT, disp_stat);
+	gba_io_store16(gba, GBA_VCOUNT  , vcount);
+}
+
 static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
 {
 	bool render = emu->render_frame;
@@ -786,7 +816,13 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 			bool hblank_irq_en   = SB_BFE(disp_stat, 4, 1);
 			if (hblank && hblank_irq_en)
 				new_if |= (1 << GBA_INT_LCD_HBLANK);
-			gba->activate_dmas |= gba->dma_wait_ppu;
+			if (hblank) {
+				// PPU-timed DMA wake: schedule 2 cycles after the edge (the
+				// hardware DMA startup delay); the callback re-checks the
+				// channels and wakes the poll loop
+				++gba->ppu.hblank_seq;
+				gba_timing_schedule(gba, &gba->dma_event, 2);
+			}
 			if (!hblank) {
 				gba->ppu.dispcnt_pipeline[0] = gba->ppu.dispcnt_pipeline[1];
 				gba->ppu.dispcnt_pipeline[1] = gba->ppu.dispcnt_pipeline[2];
@@ -795,13 +831,15 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 		}
 		if (lcd_y != gba->ppu.last_lcd_y) {
 			if (vblank != gba->ppu.last_vblank) {
-				if (vblank)
+				if (vblank) {
 					gba->frame_in_progress = false;
+					++gba->ppu.vblank_seq;
+					gba_timing_schedule(gba, &gba->dma_event, 2);
+				}
 				gba->ppu.last_vblank = vblank;
 				bool vblank_irq_en = SB_BFE(disp_stat, 3, 1);
 				if (vblank && vblank_irq_en)
 					new_if |= (1 << GBA_INT_LCD_VBLANK);
-				gba->activate_dmas |= gba->dma_wait_ppu;
 			}
 			gba->ppu.last_lcd_y = lcd_y;
 			if (lcd_y == vcount_cmp) {
