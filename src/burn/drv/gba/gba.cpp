@@ -770,6 +770,13 @@ static inline INT32 gba_timing_ff(gba_t* gba, INT32 ticks)
 		if (d < ff)
 			ff = d;
 	}
+	if (gba->dma_event.active) {
+		INT32 d = (INT32)(gba->dma_event.when - gba->global_timer);
+		if (d < 0)
+			d = 0;
+		if (d < ff)
+			ff = d;
+	}
 	if (gba->timer_event.active) {
 		INT32 d = (INT32)(gba->timer_event.when - gba->global_timer);
 		d = d <= 0 ? 0 : d + 1;

@@ -156,7 +156,6 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 				static const UINT32 dst_mask[] = { 0x07FFFFFF, 0x07FFFFFF, 0x07FFFFFF, 0x0FFFFFFF };
 				gba->dma[i].source_addr &= src_mask[i];
 				gba->dma[i].dest_addr   &= dst_mask[i];
-				gba_io_store16(gba, GBA_DMA0CNT_L + 12 * i, cnt);
 			}
 			const static INT32 dir_lookup[4] = { 1, -1, 0, 1 };
 			INT32 src_dir = dir_lookup[src_addr_ctl];
@@ -164,7 +163,7 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 
 			UINT32 src = gba->dma[i].source_addr;
 			UINT32 dst = gba->dma[i].dest_addr;
-			UINT32 cnt = gba_io_read16(gba, GBA_DMA0CNT_L + 12 * i);
+			UINT32 cnt = gba->dma[i].latched_count;	// keep the whole transfer on the latched count
 
 			// ROM ignores direction and always increments
 			if (src >= 0x08000000 && src < 0x0e000000)
