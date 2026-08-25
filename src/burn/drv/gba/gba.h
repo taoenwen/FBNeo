@@ -104,7 +104,7 @@ typedef struct gba_event_t {
 	struct gba_event_t*	next;
 	UINT32 when;			// absolute master clock of the event
 	INT32  priority;		// lower fires first at the same time
-	void   (*callback)(struct gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
+	void (*callback)(struct gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late);
 	bool   active;
 } gba_event_t;
 

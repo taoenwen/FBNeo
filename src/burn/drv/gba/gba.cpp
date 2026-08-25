@@ -442,17 +442,17 @@ INT32 GbaCoreReset(GbaCore *core)
 	if (core == NULL || core->rom == NULL)
 		return 1;
 	UINT8 battery[GBA_BATTERY_CAPACITY];
-	INT64 rtcSeconds      = core->state.rtc.rtc_seconds;
-	INT64 rtcHostSeconds  = core->state.rtc.host_seconds;
-	UINT8 rtcStatus       = core->state.rtc.status;
+	INT64 rtcSeconds     = core->state.rtc.rtc_seconds;
+	INT64 rtcHostSeconds = core->state.rtc.host_seconds;
+	UINT8 rtcStatus      = core->state.rtc.status;
 	memcpy(battery, core->state.mem.cart_backup, sizeof(battery));
-	core->host.rom_data   = core->rom;
-	core->host.rom_size   = core->romSize;
-	core->host.bios_data  = (core->externalBiosLoaded && !core->forceCustomBios) ? core->externalBios : NULL;
-	core->host.bios_size  = (core->externalBiosLoaded && !core->forceCustomBios) ? sizeof(core->externalBios) : 0;
-	gba_host_loading      = &core->host;
-	const bool loaded     = gba_load_rom(&core->host, &core->state, &core->scratch);
-	gba_host_loading      = NULL;
+	core->host.rom_data  = core->rom;
+	core->host.rom_size  = core->romSize;
+	core->host.bios_data = (core->externalBiosLoaded && !core->forceCustomBios) ? core->externalBios : NULL;
+	core->host.bios_size = (core->externalBiosLoaded && !core->forceCustomBios) ? sizeof(core->externalBios) : 0;
+	gba_host_loading     = &core->host;
+	const bool loaded    = gba_load_rom(&core->host, &core->state, &core->scratch);
+	gba_host_loading     = NULL;
 	if (!loaded)
 		return 1;
 	memcpy(core->state.mem.cart_backup, battery, sizeof(battery));
@@ -484,8 +484,8 @@ INT32 GbaCoreConfigureAudio(GbaCore *core, double sourceRate, INT32 outputFrames
 		return 1;
 	core->host.capture_audio = captureAudio != 0;
 	if (sourceRate != core->sourceRate || outputFrames != core->outputFrames) {
-		core->sourceRate             = sourceRate;
-		core->outputFrames           = outputFrames;
+		core->sourceRate   = sourceRate;
+		core->outputFrames = outputFrames;
 		core->host.audio_sample_rate = sourceRate;
 		GbaCoreClearPresentation(core);
 	}
@@ -581,7 +581,9 @@ size_t GbaCoreGetBatteryCapacity()
 
 size_t GbaCoreGetBatterySize(const GbaCore *core)
 {
-	if (core == NULL)                return   0;
+	if (core == NULL)
+		return   0;
+
 	switch (core->state.cart.backup_type) {
 		case GBA_BACKUP_EEPROM_512B: return 512;
 		case GBA_BACKUP_EEPROM:

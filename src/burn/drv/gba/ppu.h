@@ -62,10 +62,10 @@ static inline void gba_ppu_render_objs(gba_t* gba, INT32 sprite_lcd_y)
 			if (obj_disable)
 				continue;
 
-			INT32  obj_mode   = SB_BFE(attr0, 10, 2);		//(0=Normal, 1=Semi-transparent, 2=OBJ Window, 3=Prohibited)
-			bool   mosaic     = SB_BFE(attr0, 12, 1);
+			INT32  obj_mode           = SB_BFE(attr0, 10, 2);	//(0=Normal, 1=Semi-transparent, 2=OBJ Window, 3=Prohibited)
+			bool   mosaic             = SB_BFE(attr0, 12, 1);
 			bool   colors_or_palettes = SB_BFE(attr0, 13, 1);
-			INT32  obj_shape  = SB_BFE(attr0, 14, 2);	//(0=Square,1=Horizontal,2=Vertical,3=Prohibited)
+			INT32  obj_shape          = SB_BFE(attr0, 14, 2);	//(0=Square,1=Horizontal,2=Vertical,3=Prohibited)
 			UINT16 attr1 = *(UINT16*)(gba->mem.oam + o * 8 + 2);
 
 			INT32 rotscale_param = SB_BFE(attr1,  9, 5);
@@ -245,11 +245,11 @@ static inline void gba_ppu_render_objs(gba_t* gba, INT32 sprite_lcd_y)
 // Samples and composites one pixel; live register reads give snapshot semantics
 static inline void gba_ppu_render_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
 {
-	UINT16 dispcnt         = gba_io_read16(gba, GBA_DISPCNT);
-	INT32  bg_mode         = SB_BFE(dispcnt, 0, 3);
-	INT32  obj_vram_map_2d = !SB_BFE(dispcnt, 6, 1);
-	INT32  forced_blank    = SB_BFE(dispcnt, 7, 1);
-	UINT8 window_control = gba->window[lcd_x];
+	UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
+	INT32  bg_mode      = SB_BFE(dispcnt, 0, 3);
+//	INT32  obj_vram_map_2d = !SB_BFE(dispcnt, 6, 1);
+	INT32  forced_blank = SB_BFE(dispcnt, 7, 1);
+	UINT8  window_control = gba->window[lcd_x];
 	if (bg_mode == 6 || bg_mode == 7) {
 		//Palette 0 is taken as the background
 	} else if (bg_mode <= 5) {
@@ -413,7 +413,7 @@ static inline void gba_ppu_render_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
 	}
 	UINT32 col  = gba->first_target_buffer[lcd_x];
 	INT32  r    = SB_BFE(col,  0, 5);
-	INT32  g    = SB_BFE(col,  5,5);
+	INT32  g    = SB_BFE(col,  5, 5);
 	INT32  b    = SB_BFE(col, 10, 5);
 	UINT32 type = SB_BFE(col, 17, 3);
 
@@ -521,7 +521,7 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 	if (evy > 1.0)
 		evy = 1;
 
-	bool render_bgs = bg_mode <= 5;
+	bool render_bgs  = bg_mode <= 5;
 	bool mode_ok[4]  = { false, false, false, false };
 	INT32 priority[4], char_addr[4], scr_addr[4], size_x[4], size_y[4], ssize[4];
 	INT32 hoff[4], voff[4], bgx[4], bgy[4], pa[4], pc[4];
@@ -547,7 +547,7 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 			scr_addr[bg]   = SB_BFE(bgcnt,  8, 5) * 2048;
 			overflow[bg]   = SB_BFE(bgcnt, 13, 1);
 			ssize[bg]      = SB_BFE(bgcnt, 14, 2);
-			size_x[bg]     = (ssize[bg] & 1) ? 512 : 256;
+			size_x[bg]     = (ssize[bg] & 1 ) ? 512 : 256;
 			size_y[bg]     = (ssize[bg] >= 2) ? 512 : 256;
 			if (rot_scale[bg]) {
 				size_x[bg] = size_y[bg] = (16 * 8) << ssize[bg];
@@ -558,19 +558,19 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 					size_x[bg] = 160;
 					size_y[bg] = 128;
 				}
-				colors[bg]   = true;
-				bgx[bg]      = gba->ppu.aff[bg - 2].render_bgx;
-				bgy[bg]      = gba->ppu.aff[bg - 2].render_bgy;
-				pa[bg]       = (INT16)gba_io_read16(gba, GBA_BG2PA + (bg - 2) * 0x10);
-				pc[bg]       = (INT16)gba_io_read16(gba, GBA_BG2PC + (bg - 2) * 0x10);
+				colors[bg] = true;
+				bgx[bg] = gba->ppu.aff[bg - 2].render_bgx;
+				bgy[bg] = gba->ppu.aff[bg - 2].render_bgy;
+				pa[bg] = (INT16)gba_io_read16(gba, GBA_BG2PA + (bg - 2) * 0x10);
+				pc[bg] = (INT16)gba_io_read16(gba, GBA_BG2PC + (bg - 2) * 0x10);
 			} else {
 				INT16 h16 = gba_io_read16(gba, GBA_BG0HOFS + bg * 4);
 				INT16 v16 = gba_io_read16(gba, GBA_BG0VOFS + bg * 4);
-				hoff[bg]  = (h16 << 7) >> 7;
-				voff[bg]  = (v16 << 7) >> 7;
+				hoff[bg] = (h16 << 7) >> 7;
+				voff[bg] = (v16 << 7) >> 7;
 				INT32 ly     = mosaic_bg[bg] ? (lcd_y / mos_y) * mos_y : lcd_y;
 				INT32 row_y  = (voff[bg] + ly) & (size_y[bg] - 1);
-				py0[bg]      = row_y & 7;
+				py0[bg]      = row_y  & 7;
 				INT32 ty     = row_y >> 3;
 				trow_base[bg] = (ty & 31) * 32 + (ty >= 32 ? 32 * 32 * (ssize[bg] == 3 ? 2 : 1) : 0);
 			}
@@ -583,9 +583,9 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 			for (INT32 bg = 3; bg >= 0; --bg) {
 				if (!mode_ok[bg] || SB_BFE(window_control, bg, 1) == 0)
 					continue;
-				UINT32 col = 0;
-				INT32 bg_x = 0;
-				INT32 bg_y = 0;
+				UINT32 col  = 0;
+				INT32  bg_x = 0;
+				INT32  bg_y = 0;
 				if (rot_scale[bg]) {
 					INT32 sx = mosaic_bg[bg] ? (lcd_x / mos_x) * mos_x : lcd_x;
 					INT64 x2 = (INT64)pa[bg] * sx + (((INT64)bgx[bg]));
@@ -612,15 +612,15 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 					INT32 p    = bg_x + bg_y * 240;
 					col = *(UINT16*)(gba->mem.vram + p * 2);
 				} else if (bg_mode == 4) {
-					INT32 p          = bg_x + bg_y * 240;
-					INT32 addr       = p + 0xA000 * frame_sel;
+					INT32 p    = bg_x + bg_y * 240;
+					INT32 addr = p + 0xa000 * frame_sel;
 					UINT8 palette_id = gba->mem.vram[addr];
 					if (palette_id == 0)
 						continue;
 					col = *(UINT16*)(gba->mem.palette + GBA_BG_PALETTE + palette_id * 2);
 				} else if (bg_mode == 5) {
 					INT32 p    = bg_x + bg_y * 160;
-					INT32 addr = p * 2 + 0xA000 * frame_sel;
+					INT32 addr = p * 2 + 0xa000 * frame_sel;
 					col = *(UINT16*)(gba->mem.vram + addr);
 				} else {
 					bg_x = bg_x & (size_x[bg] - 1);
@@ -640,7 +640,8 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 							tile_data = *(UINT16*)(gba->mem.vram + scr_addr[bg] + toff * 2);
 							cached_tile_data[bg] = tile_data;
 							cached_py[bg] = SB_BFE(tile_data, 11, 1) ? 7 - py0[bg] : py0[bg];
-						} else tile_data = cached_tile_data[bg];
+						} else
+							tile_data = cached_tile_data[bg];
 						px = bg_x & 7;
 						if (SB_BFE(tile_data, 10, 1))
 							px = 7 - px;
@@ -684,8 +685,8 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 		INT32  b    = SB_BFE(col, 10, 5);
 		UINT32 type = SB_BFE(col, 17, 3);
 
-		INT32  mode = bld_mode;
-		bool   effect_enable = SB_BFE(window_control, 5, 1);
+		INT32 mode = bld_mode;
+		bool  effect_enable = SB_BFE(window_control, 5, 1);
 
 		//Semitransparent objects are always selected for blending
 		if (SB_BFE(col, 16, 1)) {
@@ -703,14 +704,14 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 					break;	//None
 				case 1: {
 					UINT32 col2  = gba->second_target_buffer[lcd_x];
-					UINT32 type2 = SB_BFE(col2,   17,         3);
-					bool  blend  = SB_BFE(bldcnt,  8 + type2, 1);
+					UINT32 type2 = SB_BFE(col2,  17,         3);
+					bool  blend  = SB_BFE(bldcnt, 8 + type2, 1);
 					if (blend) {
-						INT32  r2  = SB_BFE(col2,      0, 5);
-						INT32  g2  = SB_BFE(col2,      5, 5);
-						INT32  b2  = SB_BFE(col2,     10, 5);
-						INT32  eva = SB_BFE(bldalpha,  0, 5);
-						INT32  evb = SB_BFE(bldalpha,  8, 5);
+						INT32 r2  = SB_BFE(col2,     0, 5);
+						INT32 g2  = SB_BFE(col2,     5, 5);
+						INT32 b2  = SB_BFE(col2,    10, 5);
+						INT32 eva = SB_BFE(bldalpha, 0, 5);
+						INT32 evb = SB_BFE(bldalpha, 8, 5);
 						if (eva > 16) eva = 16;
 						if (evb > 16) evb = 16;
 						r = (r * eva + r2 * evb) / 16;
@@ -769,24 +770,25 @@ static inline void gba_ppu_refresh_status(gba_t* gba)
 	INT32 beam = (INT32)gba->ppu.scan_clock - remaining;
 	if (beam < 0)
 		beam += 280896;
-	INT32 lcd_y = beam / 1232;
-	INT32 lcd_x = (beam % 1232) / 4;
+	INT32 lcd_y  = beam / 1232;
+	INT32 lcd_x  = (beam % 1232) / 4;
 	INT32 vcount = (lcd_y + (lcd_x >= GBA_LCD_HBLANK_END)) % 228;
-	bool   vblank = lcd_y >= 160 && lcd_y < 227;
-	bool   hblank = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
+	bool  vblank = lcd_y >= 160 && lcd_y < 227;
+	bool  hblank = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
 	UINT16 disp_stat = gba_io_read16(gba, GBA_DISPSTAT) & ~0x7;
 	disp_stat |= vblank ? 0x1 : 0;
 	disp_stat |= hblank ? 0x2 : 0;
 	disp_stat |= vcount == SB_BFE(disp_stat, 8, 8) ? 0x4 : 0;
 	gba_io_store16(gba, GBA_DISPSTAT, disp_stat);
-	gba_io_store16(gba, GBA_VCOUNT  , vcount);
+	gba_io_store16(gba, GBA_VCOUNT,   vcount);
 }
 
 static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
 {
 	bool render = emu->render_frame;
-	if (gba->ppu.scan_clock >= 280896) gba->ppu.scan_clock -= 280896;
-	INT32 lcd_y = (gba->ppu.scan_clock) / 1232;
+	if (gba->ppu.scan_clock >= 280896)
+		gba->ppu.scan_clock -= 280896;
+	INT32 lcd_y = ( gba->ppu.scan_clock) / 1232;
 	INT32 lcd_x = ((gba->ppu.scan_clock) % 1232) / 4;
 	gba->ppu.scan_clock++;
 	INT32 fast_forward_ticks = gba_ppu_compute_max_fast_forward(gba, render && gba->ppu.render_per_pixel) + 1;
@@ -794,9 +796,9 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 	if (lcd_x == 0 || lcd_x == GBA_LCD_HBLANK_START || lcd_x == GBA_LCD_HBLANK_END) {
 		UINT16 disp_stat  = gba_io_read16(gba, GBA_DISPSTAT) & ~0x7;
 		UINT16 vcount_cmp = SB_BFE(disp_stat, 8, 8);
-		INT32  vcount     = (lcd_y + (lcd_x >= GBA_LCD_HBLANK_END)) % 228;
-		bool   vblank     = lcd_y >= 160 && lcd_y < 227;
-		bool   hblank     = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
+		INT32  vcount = (lcd_y + (lcd_x >= GBA_LCD_HBLANK_END)) % 228;
+		bool   vblank = lcd_y >= 160 && lcd_y < 227;
+		bool   hblank = lcd_x >= GBA_LCD_HBLANK_START && lcd_x < GBA_LCD_HBLANK_END;
 		disp_stat |= vblank ? 0x1 : 0;
 		disp_stat |= hblank ? 0x2 : 0;
 		disp_stat |= vcount == vcount_cmp ? 0x4 : 0;
@@ -855,9 +857,9 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 				bool bg_en = SB_BFE(dispcnt, 8 + aff + 2, 1);
 				if (!bg_en)
 					continue;
-				INT32 b = (INT16)gba_io_read16(gba, GBA_BG2PB  + (aff) * 0x10);
-				INT32 d = (INT16)gba_io_read16(gba, GBA_BG2PD  + (aff) * 0x10);
-				UINT16 bgcnt =     gba_io_read16(gba, GBA_BG2CNT +  aff  * 2);
+				INT32  b = (INT16)gba_io_read16(gba, GBA_BG2PB  + (aff) * 0x10);
+				INT32  d = (INT16)gba_io_read16(gba, GBA_BG2PD  + (aff) * 0x10);
+				UINT16 bgcnt = gba_io_read16(gba, GBA_BG2CNT +  aff  * 2);
 				bool mosaic = SB_BFE(bgcnt, 6, 1);
 				if (mosaic) {
 					UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
