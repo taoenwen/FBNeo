@@ -277,6 +277,15 @@ extern HWND hwndChat;
 extern bool bRescanRoms;
 extern bool bMenuEnabled;
 extern INT32 nQuickOpen;
+extern bool bLoading;
+extern bool bSramLoad;
+
+// console_run.cpp
+INT32 ConsoleRomOpenFile(const TCHAR* pszPath);
+void ConsoleRomOpenDialog();
+
+// scrn.cpp
+void QuitGame();
 
 extern bool szPrevGamesNeedsUpdate;
 

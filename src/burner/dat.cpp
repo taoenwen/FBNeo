@@ -172,7 +172,7 @@ INT32 write_datfile(INT32 bType, FILE* fDat)
 
 		nBurnDrvActive=nGameSelect;									// Switch to driver nGameSelect
 
-		if ((BurnDrvGetFlags() & BDF_BOARDROM) || !strcmp(BurnDrvGetTextA(DRV_NAME), "neogeo")) {
+		if ((BurnDrvGetFlags() & (BDF_BOARDROM | BDF_CUSTOMROM)) || !strcmp(BurnDrvGetTextA(DRV_NAME), "neogeo")) {
 			continue;
 		}
 

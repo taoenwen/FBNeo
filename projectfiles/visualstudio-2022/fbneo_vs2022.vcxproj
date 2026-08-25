@@ -34,6 +34,7 @@
     <ClCompile Include="..\..\src\burner\luasav.cpp" />
     <ClCompile Include="..\..\src\burner\misc.cpp" />
     <ClCompile Include="..\..\src\burner\nvram.cpp" />
+    <ClCompile Include="..\..\src\burner\console_core.cpp" />
     <ClCompile Include="..\..\src\burner\romdata_core.cpp" />
     <ClCompile Include="..\..\src\burner\sshot.cpp" />
     <ClCompile Include="..\..\src\burner\state.cpp" />
@@ -49,6 +50,7 @@
     <ClCompile Include="..\..\src\burner\win32\debugger.cpp" />
     <ClCompile Include="..\..\src\burner\win32\drv.cpp" />
     <ClCompile Include="..\..\src\burner\win32\fba_kaillera.cpp" />
+    <ClCompile Include="..\..\src\burner\win32\console_run.cpp" />
     <ClCompile Include="..\..\src\burner\win32\gameinfo.cpp" />
     <ClCompile Include="..\..\src\burner\win32\image_win32.cpp" />
     <ClCompile Include="..\..\src\burner\win32\inpc.cpp" />

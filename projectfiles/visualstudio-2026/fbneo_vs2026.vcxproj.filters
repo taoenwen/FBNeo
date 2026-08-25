@@ -3010,6 +3010,9 @@
     <ClCompile Include="..\..\src\burner\nvram.cpp">
       <Filter>burner</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\burner\console_core.cpp">
+      <Filter>burner</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\burner\romdata_core.cpp">
       <Filter>burner</Filter>
     </ClCompile>
@@ -3059,6 +3062,9 @@
       <Filter>burner\win32</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\burner\win32\gameinfo.cpp">
+      <Filter>burner\win32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\burner\win32\console_run.cpp">
       <Filter>burner\win32</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\burner\win32\image_win32.cpp">

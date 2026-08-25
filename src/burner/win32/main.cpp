@@ -932,6 +932,7 @@ static int AppExit()
 	DestroySubDir();
 	MediaExit();
 	RomDataFree();					// Release RomData drivers before the engine list
+	ConsoleRomExit();				// Release the console ROM runtime driver record
 	BurnLibExit();					// Exit the Burn library
 
 	DisableHighResolutionTiming();

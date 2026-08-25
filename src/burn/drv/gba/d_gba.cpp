@@ -102,6 +102,18 @@ static struct BurnInputInfo TiltInputList[] = {		// Tilt sensor
 
 STDINPUTINFO(Tilt)
 
+static struct BurnInputInfo AioInputList[] = {		// All-in-one (Solar + Gyro + Tilt)
+	GBA_BUTTON_INPUTS
+	GBA_SOLAR_INPUTS
+	GBA_GYRO_INPUTS
+	GBA_TILT_INPUTS
+	GBA_RESET_INPUTS
+	GBA_RENDER_DIP
+	GBA_BIOS_DIP
+};
+
+STDINPUTINFO(Aio)
+
 static struct BurnInputInfo CustInputList[] = {
 	GBA_BUTTON_INPUTS
 	GBA_RESET_INPUTS
@@ -153,12 +165,15 @@ STDINPUTINFO(Cust)
 	{ GBA_PATCH_IDX(Name),	0x01,	0x01,	0x00,	"Off"				},	\
 	{ GBA_PATCH_IDX(Name),	0x01,	0x01,	0x01,	"On"				},
 
-static struct BurnDIPInfo GbaDIPList[] =
-{
-	GBA_DEFAULT_DIP(Gba)
-};
+#define GBADIPINFO(Name)													\
+	static struct BurnDIPInfo Name##DIPList[] = { GBA_DEFAULT_DIP(Name) };	\
+	STDDIPINFO(Name)
 
-STDDIPINFO(Gba)
+GBADIPINFO(Gba)
+GBADIPINFO(Aio)
+GBADIPINFO(Solar)
+GBADIPINFO(Gyro)
+GBADIPINFO(Tilt)
 
 static struct BurnDIPInfo CusDIPList[] =
 {
@@ -167,27 +182,6 @@ static struct BurnDIPInfo CusDIPList[] =
 
 STDDIPINFO(Cus)
 
-static struct BurnDIPInfo SolarDIPList[] =
-{
-	GBA_DEFAULT_DIP(Solar)
-};
-
-STDDIPINFO(Solar)
-
-static struct BurnDIPInfo GyroDIPList[] =
-{
-	GBA_DEFAULT_DIP(Gyro)
-};
-
-STDDIPINFO(Gyro)
-
-static struct BurnDIPInfo TiltDIPList[] =
-{
-	GBA_DEFAULT_DIP(Tilt)
-};
-
-STDDIPINFO(Tilt)
-
 static struct BurnDIPInfo MkscDIPList[] =
 {
 	GBA_MKSC_DIP(Gba)
@@ -195,6 +189,7 @@ static struct BurnDIPInfo MkscDIPList[] =
 
 STDDIPINFO(Mksc)
 
+#undef GBADIPINFO
 #undef GBA_DEFAULT_DIP
 #undef GBA_CUSTOM_DIP
 #undef GBA_MKSC_DIP
@@ -551,6 +546,23 @@ struct BurnDriver BurnDrvgba_gba = {
 	GBA_WIDTH, GBA_HEIGHT, 3, 2
 };
 
+// Runtime shell for direct ROM file loading: empty ROM set, never runs on its own
+#define gba_aioRomDesc	emptyRomDesc
+
+STDROMPICKEXT(gba_aio, gba_aio, gba_gba)
+STD_ROM_FN(gba_aio)
+
+struct BurnDriver BurnDrvgba_aio = {
+	"gba_aio", NULL, "gba_gba", NULL, "2026",
+	"Game Boy Advance Custom ROM (All-in-one)\0", "Runtime shell for direct ROM file loading", NULL, "Game Boy Advance",
+	NULL, NULL, NULL, NULL,
+	BDF_CUSTOMROM, 1, HARDWARE_PREFIX_CARTRIDGE | HARDWARE_GBA, GBF_MISC, 0,
+	GbaGetZipName, gba_aioRomInfo, gba_aioRomName, NULL, NULL, NULL, NULL, AioInputInfo, AioDIPInfo,
+	DrvInit, DrvExit, DrvFrame, DrvDraw, DrvScan, &DrvRecalc, 0,
+	GBA_WIDTH, GBA_HEIGHT, 3, 2
+};
+
+#undef gba_aioRomDesc
 
 // =========================================================================================
 //  Please use short names from the MAME softwarelist/gba set wherever possible.

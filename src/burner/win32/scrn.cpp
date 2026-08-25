@@ -9,7 +9,7 @@
 
 int nActiveGame;
 
-static bool bLoading = 0;
+bool bLoading = 0;
 
 #ifdef BUILD_PCE
 static void SetPCECDTitle()
@@ -1100,9 +1100,9 @@ static void UpdatePreviousGameList()
 	szPrevGamesNeedsUpdate = true;
 }
 
-static bool bSramLoad = true; // always true, unless BurnerLoadDriver() is called from StartFromReset()
+bool bSramLoad = true; // always true, unless BurnerLoadDriver() is called from StartFromReset()
 
-static void QuitGame()
+void QuitGame()
 {
 	AudBlankSound();
 
@@ -1502,6 +1502,10 @@ static void OnCommand(HWND /*hDlg*/, int id, HWND /*hwndCtl*/, UINT codeNotify)
 				break;
 			}
 		}
+
+		case MENU_LOAD_GBAFILE:
+			ConsoleRomOpenDialog();
+			break;
 
 		case MENU_LOAD_IPSPATCH:
 		case MENU_LOAD_CDIMAGE:

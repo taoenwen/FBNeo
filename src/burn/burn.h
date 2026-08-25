@@ -561,6 +561,7 @@ int BurnComputeSHA1(const UINT8 *buffer, int buffer_size, char *hash_str);
 #define BDF_RUNAHEAD_DRAWSYNC							(1 << 13)
 #define BDF_RUNAHEAD_DISABLED							(1 << 14)
 #define BDF_ROMDATA_DRIVER								(1 << 15)	// Driver injected at runtime from a user RomData (.dat)
+#define BDF_CUSTOMROM									(1 << 16)	// Driver injected at runtime for direct ROM file loading (hidden from the game list)
 
 // Flags for the hardware member
 // Format: 0xDDEEFFFF, where DD: Manufacturer, EE: Hardware platform, FFFF: Flags (used by driver)

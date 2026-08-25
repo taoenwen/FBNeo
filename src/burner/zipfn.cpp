@@ -9,21 +9,101 @@
 #define ZIPFN_FILETYPE_NONE		-1
 #define ZIPFN_FILETYPE_ZIP		1
 #define ZIPFN_FILETYPE_7ZIP		2
+#define ZIPFN_FILETYPE_RAW		3
 
 static INT32 nFileType = ZIPFN_FILETYPE_NONE;
 
 static unzFile Zip = NULL;
 static INT32 nCurrFile = 0; // The current file we are pointing to
 
+static FILE* RawFile = NULL;
+static char* RawName = NULL;
+static UINT32 RawSize = 0;
+
 #ifdef INCLUDE_7Z_SUPPORT
 static _7z_file* _7ZipFile = NULL;
 #endif
+
+static char* ZipGetFilenameA(char* szPath)
+{
+	char* p = szPath + strlen(szPath);
+	while (p > szPath && p[-1] != '\\' && p[-1] != '/') {
+		p--;
+	}
+	return p;
+}
+
+// Try the path exactly as given: full path with extension (archive), or a bare ROM file (raw)
+static INT32 ZipOpenExact(char* szZip)
+{
+	FILE* f = fopen(szZip, "rb");
+	if (f == NULL) {
+		return 1;
+	}
+
+	UINT8 magic[4] = { 0, 0, 0, 0 };
+	size_t nRead = fread(magic, 1, 4, f);
+	fclose(f);
+
+	if (nRead >= 2 && magic[0] == 'P' && magic[1] == 'K') {
+		Zip = unzOpen(szZip);
+		if (Zip != NULL) {
+			nFileType = ZIPFN_FILETYPE_ZIP;
+			if (unzGoToFirstFile(Zip) != UNZ_OK) {
+				unzClose(Zip);
+				Zip = NULL;
+				return 1;
+			}
+			nCurrFile = 0;
+			return 0;
+		}
+		// Not a valid zip: fall through and treat the file as raw
+	}
+
+#ifdef INCLUDE_7Z_SUPPORT
+	if (nRead >= 2 && magic[0] == '7' && magic[1] == 'z') {
+		_7z_error _7zerr = _7z_file_open(szZip, &_7ZipFile);
+		if (_7zerr == _7ZERR_NONE) {
+			nFileType = ZIPFN_FILETYPE_7ZIP;
+			nCurrFile = 0;
+			return 0;
+		}
+		// Not a valid 7z: fall through and treat the file as raw
+	}
+#endif
+
+	// Anything else: the file itself is a single-entry raw archive
+	f = fopen(szZip, "rb");
+	if (f == NULL) {
+		return 1;
+	}
+	fseek(f, 0, SEEK_END);
+	RawSize = (UINT32)ftell(f);
+	fseek(f, 0, SEEK_SET);
+
+	RawName = (char*)malloc(strlen(szZip) + 1);
+	if (RawName == NULL) {
+		fclose(f);
+		return 1;
+	}
+	strcpy(RawName, szZip);
+	RawFile = f;
+
+	nFileType = ZIPFN_FILETYPE_RAW;
+	nCurrFile = 0;
+
+	return 0;
+}
 
 INT32 ZipOpen(char* szZip)
 {
 	nFileType = ZIPFN_FILETYPE_NONE;
 
 	if (szZip == NULL) return 1;
+
+	if (ZipOpenExact(szZip) == 0) {
+		return 0;
+	}
 
 	char szFileName[MAX_PATH];
 
@@ -73,6 +153,18 @@ INT32 ZipClose()
 	}
 #endif
 
+	if (nFileType == ZIPFN_FILETYPE_RAW) {
+		if (RawFile != NULL) {
+			fclose(RawFile);
+			RawFile = NULL;
+		}
+		if (RawName != NULL) {
+			free(RawName);
+			RawName = NULL;
+		}
+		RawSize = 0;
+	}
+
 	nFileType = ZIPFN_FILETYPE_NONE;
 
 	return 0;
@@ -87,6 +179,39 @@ INT32 ZipGetList(struct ZipEntry** pList, INT32* pnListCount)
 #ifdef INCLUDE_7Z_SUPPORT
 	if (nFileType == ZIPFN_FILETYPE_7ZIP && _7ZipFile == NULL) return 1;
 #endif
+
+	if (nFileType == ZIPFN_FILETYPE_RAW) {
+		struct ZipEntry* List = (struct ZipEntry*)malloc(sizeof(struct ZipEntry));
+		if (List == NULL) return 1;
+		memset(List, 0, sizeof(struct ZipEntry));
+
+		List[0].szName = (char*)malloc(strlen(ZipGetFilenameA(RawName)) + 1);
+		if (List[0].szName == NULL) {
+			free(List);
+			return 1;
+		}
+		strcpy(List[0].szName, ZipGetFilenameA(RawName));
+		List[0].nLen = RawSize;
+		List[0].nCrc = 0;
+
+		// Compute the real CRC so matching/verification behaves like a zip/7z listing
+		if (RawFile != NULL) {
+			fseek(RawFile, 0, SEEK_SET);
+			UINT32 nCrc = 0;
+			UINT8 buf[64 * 1024];
+			size_t nChunk;
+			while ((nChunk = fread(buf, 1, sizeof(buf), RawFile)) > 0) {
+				nCrc = crc32(nCrc, buf, (uInt)nChunk);
+			}
+			fseek(RawFile, 0, SEEK_SET);
+			List[0].nCrc = nCrc;
+		}
+
+		*pList = List;
+		if (pnListCount != NULL) *pnListCount = 1;
+
+		return 0;
+	}
 
 	if (nFileType == ZIPFN_FILETYPE_ZIP) {
 		unz_global_info ZipGlobalInfo;
@@ -210,6 +335,14 @@ INT32 ZipLoadFile(UINT8* Dest, INT32 nLen, INT32* pnWrote, INT32 nEntry)
 #endif
 
 	INT32 nRet = 0;
+
+	if (nFileType == ZIPFN_FILETYPE_RAW) {
+		if (RawFile == NULL || nEntry != 0) return 1;
+		fseek(RawFile, 0, SEEK_SET);
+		if (fread(Dest, 1, nLen, RawFile) != (size_t)nLen) return 1;
+		if (pnWrote != NULL) *pnWrote = nLen;
+		return 0;
+	}
 
 	if (nFileType == ZIPFN_FILETYPE_ZIP) {
 		if (nEntry < nCurrFile)

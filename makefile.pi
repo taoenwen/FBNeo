@@ -51,7 +51,7 @@ alldir += burner burner/pi burner/sdl dep/libs/libspng dep/libs/lib7z \
 
 depobj += cdlist.o \
 		\
-		conc.o cong.o dat.o gamc.o gami.o image.o ioapi.o misc.o romdata_core.o \
+		conc.o cong.o console_core.o dat.o gamc.o gami.o image.o ioapi.o misc.o romdata_core.o \
 		sshot.o state.o statec.o unzip.o zipfn.o \
 		\
 		adler32.o compress.o crc32.o deflate.o gzclose.o gzlib.o \

@@ -697,7 +697,7 @@ static int SelListMake()
 		// if showing zip names get active entry from our sorted list
 		if (nLoadMenuShowY & SHOWSHORT) nBurnDrvActive = nBurnZipListDrv[nBurnDrvCount - 1 - i].nBurnDrvNo;
 
-		if (BurnDrvGetFlags() & BDF_BOARDROM) {
+		if (BurnDrvGetFlags() & (BDF_BOARDROM | BDF_CUSTOMROM)) {
 			continue;
 		}
 
@@ -767,7 +767,7 @@ static int SelListMake()
 		// if showing zip names get active entry from our sorted list
 		if (nLoadMenuShowY & SHOWSHORT) nBurnDrvActive = nBurnZipListDrv[nBurnDrvCount - 1 - i].nBurnDrvNo;
 
-		if (BurnDrvGetFlags() & BDF_BOARDROM) {
+		if (BurnDrvGetFlags() & (BDF_BOARDROM | BDF_CUSTOMROM)) {
 			continue;
 		}
 

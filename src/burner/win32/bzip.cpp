@@ -95,6 +95,10 @@ static INT32 RomArchiveExists(TCHAR *szName)
 	TCHAR szFileName[MAX_PATH];
 	INT32 ret = 0;
 
+	if (FileExists(szName)) {									// Bare ROM file (name already includes the extension)
+		return 1;
+	}
+
 	_stprintf(szFileName, _T("%s.zip"), szName);
 	ret = FileExists(szFileName);
 

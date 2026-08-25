@@ -43,6 +43,7 @@ frontend_sources = files(
     'drv.cpp',
     'fba_kaillera.cpp',
     'gameinfo.cpp',
+    'console_run.cpp',
     'image_win32.cpp',
     'inpc.cpp',
     'inpcheat.cpp',
