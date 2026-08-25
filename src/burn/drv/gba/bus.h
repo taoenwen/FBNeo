@@ -352,7 +352,6 @@ static inline UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_type)
 			if (addr < 0x4000) {
 				if (gba->cpu.registers[15] < 0x4000)
 					gba->mem.bios_word = *(UINT32*)(gba->mem.bios + (addr & ~3));
-				//else gba->mem.bios_word=0;
 				gba->mem.openbus_word = gba->mem.bios_word;
 			}
 			break;
@@ -389,8 +388,7 @@ static inline UINT32* gba_dword_lookup(gba_t* gba, UINT32 addr, INT32 req_type)
 				if (addr & 0x08000) {
 					UINT16 dispcnt = gba_io_read16(gba, GBA_DISPCNT);
 					INT32 bg_mode  = SB_BFE(dispcnt, 0, 3);
-					//Don't allow writes to mirrored VRAM in bitmap mode. See also vram-mirror.gba
-					//Needed for Acrobat Kid. Still requires testing to verify correct behavior
+					// block writes to mirrored VRAM in bitmap mode (Acrobat Kid)
 					if (bg_mode > 2 && !(addr & 0x04000)) {
 						ret = &gba->mem.openbus_word;*ret = 0;
 					}
@@ -549,8 +547,7 @@ static inline void gba_process_mmio_read(gba_t* gba, UINT32 address)
 	// Force recomputing timers on timer read
 	if (address >= GBA_TM0CNT_L && address <= GBA_TM3CNT_H)
 		gba_compute_timers(gba);
-	// Derive DISPSTAT/VCOUNT from the current beam position: between PPU
-	// events the io registers hold the stale boundary snapshot
+	// Derive DISPSTAT/VCOUNT from the live beam position (io holds stale boundary snapshots)
 	else if (address >= GBA_DISPSTAT && address <= GBA_VCOUNT)
 		gba_ppu_refresh_status(gba);
 }
@@ -667,9 +664,7 @@ static inline bool gba_process_mmio_write(gba_t* gba, UINT32 address, UINT32 dat
 		waitcnt = ((waitcnt & ~word_mask) | (word_data & word_mask));
 		gba_recompute_waitstate_table(gba, waitcnt);
 	} else if (address_u32 == GBA_KEYINPUT) {
-		// 0x04000130 word: KEYINPUT (low, read-only) + KEYCNT (high, R/W).
-		// KEYCNT writes must never clobber KEYINPUT (caused spurious keypad IRQ:
-		// disarming KEYCNT while armed made every key read as pressed).
+		// KEYCNT (high word) writes must not clobber read-only KEYINPUT (low word)
 		if (word_mask & 0xffff0000) {
 			gba_io_store16(gba, GBA_KEYCNT, (word_data >> 16) & 0xc3ff);
 			gba_tick_keypad(NULL, gba);

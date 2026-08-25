@@ -5,10 +5,7 @@
 
 #include "gba.h"
 
-// Scheduler callback: PPU-timed DMA wake, fired 2 cycles after the hblank /
-// vblank rising edge (hardware DMA startup delay).  dma_wait_ppu can be stale
-// when a channel was enabled through a CNT_H-only write (which does not wake
-// the poll loop), so scan the timing bits as a fallback.
+// PPU-timed DMA wake, 2 cycles after the hblank/vblank edge; rescan timing bits if dma_wait_ppu is stale
 static inline void gba_dma_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
 {
 	(void)emu;
@@ -26,9 +23,7 @@ static inline void gba_dma_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 	gba->activate_dmas |= gba->dma_wait_ppu;
 }
 
-// GBATEK: the transfer count is latched at enable time and re-latched at each
-// completion in repeat mode; rewriting CNT_L mid-wait must not change the
-// pending transfer (mGBA suite "DMA count latching" relies on this)
+// Count latched at enable/repeat; CNT_L writes don't affect a pending transfer
 static inline UINT32 gba_dma_latch_count(gba_t* gba, INT32 i)
 {
 	UINT32 cnt = gba_io_read16(gba, GBA_DMA0CNT_L + 12 * i);
@@ -54,7 +49,7 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 				gba->dma[i].last_enable = enable;
 				gba->dma[i].source_addr = gba_io_read32(gba, GBA_DMA0SAD + 12 * i);
 				gba->dma[i].dest_addr   = gba_io_read32(gba, GBA_DMA0DAD + 12 * i);
-				//GBA Suite says that these need to be force aligned
+				// force align addresses on enable
 				if (type) {
 					gba->dma[i].dest_addr   &= ~3;
 					gba->dma[i].source_addr &= ~3;
@@ -64,9 +59,7 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 				}
 				gba->dma[i].current_transaction = 0;
 				gba->dma[i].startup_delay       = 2;
-				// a (re)enabled PPU-timed channel waits for the NEXT rising edge,
-				// matching hardware: enabling HBlank/VBlank DMA mid-state must
-				// not fire on the current one
+				// (re)enabled PPU-timed channel waits for the NEXT edge, not the current one
 				gba->dma[i].last_vblank_seq = gba->ppu.vblank_seq;
 				gba->dma[i].last_hblank_seq = gba->ppu.hblank_seq;
 				gba->dma[i].latched_count   = gba_dma_latch_count(gba, i);
@@ -110,7 +103,7 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 					if (vcount >= 160 || !hblank_edge)
 						continue;
 				}
-				//Video dma: fires once per scanline on lines 2-161
+				// Video dma: fires once per scanline on lines 2-161
 				if (mode == 3 && i == 3) {
 					gba->dma_wait_ppu = true;
 					UINT16 vcount = gba_io_read16(gba, GBA_VCOUNT);
@@ -124,7 +117,7 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 
 				if (dst_addr_ctl == 3) {
 					gba->dma[i].dest_addr = gba_io_read32(gba, GBA_DMA0DAD + 12 * i);
-					//GBA Suite says that these need to be force aligned
+					// force align reloaded dest address
 					if (type)
 						gba->dma[i].dest_addr &= ~3;
 					else
@@ -196,17 +189,11 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 						((UINT64*)gba->mem.cart_backup)[addr] = data;
 						gba->cart.backup_is_dirty = true;
 					} else if (cnt ==  9) {
-						// 2 bits "11" (Read Request)
-						// 6 bits eeprom address (MSB first)
-						// 1 bit "0"
-						// Write data 6 bit address
+						// read request: 2b "11" + 6b addr(MSB first) + 1b "0"
 						gba->mem.eeprom_addr = gba_read_eeprom_bitstream(gba, src, 2,  6, type ? 4 : 2, src_dir);
 						gba->cart.eeprom_read_bits_remaining = 68;
 					} else if (cnt == 17) {
-						// 2 bits "11" (Read Request)
-						// 14 bits eeprom address (MSB first)
-						// 1 bit "0"
-						// Write data 6 bit address
+						// read request: 2b "11" + 14b addr(MSB first) + 1b "0"
 						gba->mem.eeprom_addr = gba_read_eeprom_bitstream(gba, src, 2, 14, type ? 4 : 2, src_dir) & 0x3ff;
 						gba->cart.eeprom_read_bits_remaining = 68;
 					} else {
@@ -297,8 +284,6 @@ static inline INT32 gba_tick_dma(gba_t*gba, INT32 cycle_delta)
 				}
 				if (!dma_repeat || mode == 0) {
 					cnt_h &= 0x7fff;
-					//gba_io_store16(gba, GBA_DMA0CNT_L+12*i,0);
-					//Reload on incr reload
 					enable = false;
 					gba_io_store16(gba, GBA_DMA0CNT_H + 12 * i, cnt_h);
 				} else {

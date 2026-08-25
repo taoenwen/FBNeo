@@ -1,12 +1,7 @@
 #include "burnint.h"
 #include "gba.h"
 
-// ---------------------------------------------------------------------------
-// Cross-subsystem forward declarations.  Every subsystem header is aggregated
-// into the single translation unit of gba.cpp, so these declarations let a
-// function in one header call a static function defined in another regardless
-// of include order.  Specifiers mirror each definition exactly.
-// ---------------------------------------------------------------------------
+// Forward declarations for cross-header calls within this single translation unit
 
 // apu.h
 static inline void    gba_process_audio_writes(gba_t* gba);
@@ -750,9 +745,7 @@ void gba_timing_rebind(gba_t* gba)
 	gba_update_interrupt_pending(gba);
 }
 
-// lead-in length matching the per-cycle fast-forward horizon: the ppu and audio
-// settle on their boundary, the timer one cycle past it; due events settle
-// immediately
+// Fast-forward lead-in matching the per-cycle horizon; due events settle immediately
 static inline INT32 gba_timing_ff(gba_t* gba, INT32 ticks)
 {
 	INT32 ff = ticks;
@@ -786,10 +779,7 @@ static inline INT32 gba_timing_ff(gba_t* gba, INT32 ticks)
 	return ff;
 }
 
-// advances the master clock by `ticks` cycles, firing every event that comes due
-// on the way.  Each cycle shifts the IF pipeline before its events fire, and
-// events landing exactly on the quantum end stay pending so the next iteration's
-// DMA/exec decision runs first, matching the per-cycle cadence.
+// Advance the master clock by ticks, firing due events; per-cycle IF shifts precede events
 static inline void gba_advance(gba_t* gba, sb_emu_state_t* emu, INT32 ticks)
 {
 	INT32 event_free = gba_timing_ff(gba, ticks);
@@ -902,8 +892,7 @@ void gba_tick(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 				if (ticks < 1)
 					ticks = 1;
 				gba_advance(gba, emu, ticks);
-				// a halted CPU wakes within the interrupt latency: settle the
-				// IF pipeline promptly instead of running to the next horizon
+				// settle the IF pipeline within the interrupt latency, not the next horizon
 				while (gba->active_if_pipe_stages && !gba->interrupt_pending)
 					gba_advance(gba, emu, 1);
 				continue;

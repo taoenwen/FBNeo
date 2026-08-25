@@ -124,7 +124,6 @@ static inline void gba_process_flash_state_machine(gba_t* gba, UINT32 baddr, UIN
 			break;
 		case FLASH_RECV_55:
 			if (baddr == 0x5555) {
-				// Process command
 				switch (data) {
 					case FLASH_ENTER_CHIP_ID:gba->cart.in_chip_id_mode = true;             break;
 					case FLASH_EXIT_CHIP_ID: gba->cart.in_chip_id_mode = false;            break;
@@ -410,7 +409,7 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 		gba_matrix_reset(gba);
 	}
 
-	// FC Mini (FC Mini) cartridge detection
+	// FC Mini cartridge detection
 	{
 		static const UINT8 fcmini_init_seq[16] = {
 			0xb4, 0x00, 0x9f, 0xe5, 0x99, 0x10, 0xa0, 0xe3,
@@ -423,8 +422,7 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 		}
 	}
 
-	// Scan for backup strings; 32MB carts (e.g. video carts) are dense with data
-	// and yield false positives, so leave them at none.
+	// Scan for backup strings; 32MB carts are data-dense, so skip them (false positives)
 	if (!gba->cart.fcmini.type && gba->cart.rom_size < 0x2000000)
 		gba->cart.backup_type = gba_search_rom_for_backup_string(gba);
 
@@ -442,7 +440,7 @@ bool gba_load_rom(sb_emu_state_t* emu, gba_t* gba, gba_scratch_t* scratch)
 			gba->mem.cart_backup[i] = 0xff;
 	}
 
-	// Setup flash chip id (this is not used if the cartridge does not have flash backup storage)
+	// Setup flash chip id (unused unless cart has flash backup)
 	gba_setup_flash_id(gba);
 
 	gba->cpu = arm7_init(gba);

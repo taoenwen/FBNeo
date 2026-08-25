@@ -9,21 +9,21 @@
 #define GBA_LCD_HBLANK_START	(GBA_LCD_W)
 #define GBA_LCD_VBLANK_START	(GBA_LCD_H*1232)
 
-//Returns true if the fast forward failed to be more efficient in main emu loop
+// Max cycles to skip from the current beam position
 static inline INT32 gba_ppu_compute_max_fast_forward(gba_t* gba, bool render)
 {
 	INT32 scanline_clock = (gba->ppu.scan_clock) % 1232;
-	//If inside hblank, can fastforward to outside of hblank
+	// inside hblank: fast-forward to its end
 	if (scanline_clock >= GBA_LCD_HBLANK_START * 4 && scanline_clock <= GBA_LCD_HBLANK_END * 4)
 		return GBA_LCD_HBLANK_END   * 4 - scanline_clock - 1;
-	//If inside hrender, can fastforward to hblank if not the first pixel and not visible
+	// inside hrender: fast-forward to hblank if not visible
 	bool not_visible = !render || gba->ppu.scan_clock > GBA_LCD_VBLANK_START;
 	if (not_visible && (scanline_clock >= 1 && scanline_clock <= GBA_LCD_HBLANK_START * 4))
 		return GBA_LCD_HBLANK_START * 4 - scanline_clock - 1;
 	return 3 - ((gba->ppu.scan_clock) % 4);
 }
 
-//Renders the OBJ layer and builds the window mask for one scanline
+// Renders the OBJ layer and builds the window mask for one scanline
 static inline void gba_ppu_render_objs(gba_t* gba, INT32 sprite_lcd_y)
 {
 	UINT16 dispcnt         = gba_io_read16(gba, GBA_DISPCNT);
@@ -32,7 +32,7 @@ static inline void gba_ppu_render_objs(gba_t* gba, INT32 sprite_lcd_y)
 
 	UINT16 mos_reg = gba_io_read16(gba, GBA_MOSAIC);
 	INT32  mos_y   = SB_BFE(mos_reg, 12, 4) + 1;
-	// Partial fix to https://github.com/skylersaleh/SkyEmu/issues/316
+	// SkyEmu issue 316: mosaic counter fix
 	if (++gba->ppu.mosaic_y_counter >= mos_y || sprite_lcd_y == 0) {
 		gba->ppu.mosaic_y_counter = 0;
 	}
@@ -242,7 +242,7 @@ static inline void gba_ppu_render_objs(gba_t* gba, INT32 sprite_lcd_y)
 	}
 }
 
-//Samples and composites one pixel; live register reads inside the scanline loop give snapshot semantics
+// Samples and composites one pixel; live register reads give snapshot semantics
 static inline void gba_ppu_render_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
 {
 	UINT16 dispcnt         = gba_io_read16(gba, GBA_DISPCNT);
@@ -500,8 +500,7 @@ static inline void gba_ppu_render_pixel(gba_t* gba, INT32 lcd_x, INT32 lcd_y)
 	}
 }
 
-//Scanline render: registers are snapshotted once at hblank start and pre-decoded
-//per BG; the 240-pixel loop performs no IO reads
+// Scanline render: registers snapshotted at hblank start; pixel loop performs no IO reads
 static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 {
 	UINT16 dispcnt      = gba_io_read16(gba, GBA_DISPCNT);
@@ -527,8 +526,7 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 	INT32 priority[4], char_addr[4], scr_addr[4], size_x[4], size_y[4], ssize[4];
 	INT32 hoff[4], voff[4], bgx[4], bgy[4], pa[4], pc[4];
 	bool colors[4], mosaic_bg[4], rot_scale[4], overflow[4];
-	//text BG row constants + per-tile-column cache: the tilemap entry is read once
-	//per 8-pixel tile instead of once per pixel
+	// text BG row constants + per-tile-column cache: tilemap read once per tile
 	INT32 py0[4], trow_base[4], cached_tile_x[4], cached_py[4];
 	UINT16 cached_tile_data[4];
 	for (INT32 bg = 0; bg < 4; ++bg)
@@ -760,13 +758,7 @@ static inline void gba_ppu_render_scanline(gba_t* gba, INT32 lcd_y)
 	}
 }
 
-//On-read refresh of DISPSTAT/VCOUNT for CPU MMIO reads.  scan_clock and
-//ppu_event.when advance in lockstep (both move by the same amount each event),
-//so the current beam position is scan_clock - (when - global_timer): between
-//PPU events the io registers would otherwise hold the stale boundary snapshot.
-//Only the status bits are recomputed; the IRQ-enable/vcount-setting bits are
-//preserved.  Internal reads via gba_io_read16 are NOT routed here, so the
-//event's own logic and the DMA trigger windows keep their boundary semantics.
+// On-read refresh of DISPSTAT/VCOUNT from the current beam position; internal reads are not routed here
 static inline void gba_ppu_refresh_status(gba_t* gba)
 {
 	if (!gba->ppu_event.active)
@@ -817,9 +809,7 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 			if (hblank && hblank_irq_en)
 				new_if |= (1 << GBA_INT_LCD_HBLANK);
 			if (hblank) {
-				// PPU-timed DMA wake: schedule 2 cycles after the edge (the
-				// hardware DMA startup delay); the callback re-checks the
-				// channels and wakes the poll loop
+				// DMA wake 2 cycles after the edge (hardware startup delay)
 				++gba->ppu.hblank_seq;
 				gba_timing_schedule(gba, &gba->dma_event, 2);
 			}
@@ -855,18 +845,11 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 		return;
 
 	if (lcd_x == 0) {
-		//Per-scanline affine reference update, applied at scanline start -- after the
-		//HBlank handler has written this line's BG2PA/PB/PC/PD/BG2X/BG2Y -- so the
-		//per-line increment uses the CURRENT line's PB/PD, matching the GBA's scanline-start
-		//affine latch (the latched matrix PB/PD is sampled at ~cycle 6).
-		//Previously this ran at HBLANK_START, before the handler fired, so the
-		//increment used the PREVIOUS line's PB/PD and the affine reference drifted one
-		//scanline behind, tearing the track edge lines in games that rely on the
-		//per-scanline increment (e.g. Mario Kart: Super Circuit's Mode 2 road).
+		// Affine reference updated at scanline start so the per-line increment uses
+		// the CURRENT line's PB/PD (sampled ~cycle 6)
 		UINT16 dispcnt = gba->ppu.dispcnt_pipeline[0];
 		INT32  bg_mode = SB_BFE(dispcnt, 0, 3);
-		//Line 0 (frame start) skips the increment and just reloads from BG2X/BG2Y,
-		//matching the frame-start init path.
+		// Line 0 skips the increment and reloads from BG2X/BG2Y
 		if (bg_mode != 0 && lcd_y != 0) {
 			for (INT32 aff = 0; aff < 2; ++aff) {
 				bool bg_en = SB_BFE(dispcnt, 8 + aff + 2, 1);
@@ -889,8 +872,7 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 				}
 			}
 		}
-		//Latch BGX and BGY registers: reload from BG2X/BG2Y when the CPU wrote them
-		//this scanline (overrides the increment above), or unconditionally on line 0.
+		// Reload from BG2X/BG2Y when written this scanline, or unconditionally on line 0
 		for (INT32 aff = 0; aff < 2; ++aff) {
 			if (gba->ppu.aff[aff].wrote_bgx || lcd_y == 0) {
 				gba->ppu.aff[aff].render_bgx = gba_io_read32(gba, GBA_BG2X + (aff) * 0x10);
@@ -913,8 +895,7 @@ static inline void gba_ppu_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_
 		if (lcd_x < 240 && lcd_y < 160)
 			gba_ppu_render_pixel(gba, lcd_x, lcd_y);
 	} else if (lcd_y < 160 && lcd_x == GBA_LCD_HBLANK_START) {
-		//Scanline render: the row is composited in one pass at hblank start with
-		//the register snapshot of that instant, before hblank DMA/IRQ take effect
+		// Composite the row at hblank start before hblank DMA/IRQ take effect
 		gba_ppu_render_objs(gba, lcd_y);
 		gba_ppu_render_scanline(gba, lcd_y);
 	}

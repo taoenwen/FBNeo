@@ -515,7 +515,7 @@ typedef struct gba_t {
 	gba_rtc_t rtc;
 	gba_dma_t dma[4];
 	gba_sio_t sio;
-	//There is a 2 cycle penalty when the CPU takes over from the DMA
+	// 2-cycle penalty when the CPU takes over from the DMA
 	bool last_transaction_dma;
 	bool activate_dmas;
 	bool dma_wait_ppu;
@@ -534,8 +534,7 @@ typedef struct gba_t {
 	UINT32 second_target_buffer[GBA_LCD_W];
 	UINT8  window[GBA_LCD_W];
 	UINT8* framebuffer;
-	// Some HW has up to a 4 cycle delay before its IF propagates. 
-	// This array acts as a FIFO to keep track of that. 
+	// IF propagates with up to 4-cycle delay; this FIFO tracks it
 	UINT16 pipelined_if[5];
 	INT32  active_if_pipe_stages;
 	bool   interrupt_pending;	// cached (IE & IF) with IME enabled

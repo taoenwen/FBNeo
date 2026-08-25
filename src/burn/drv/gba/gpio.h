@@ -5,8 +5,7 @@
 
 #include "gba.h"
 
-// Howard Hinnant's days_from_civil / civil_from_days (public domain). Proleptic
-// Gregorian, handles any date including 2100 (not a leap year).
+// Howard Hinnant's days_from_civil / civil_from_days (public domain)
 static inline INT32 gba_rtc_days_from_civil(INT32 y, UINT32 m, UINT32 d)
 {
 	y -= (m <= 2);

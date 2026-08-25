@@ -49,22 +49,7 @@ typedef void   (*arm_trigger_breakpoint_fn_t)(void* user_data);
 
 
 typedef struct {
-	// Registers
-	/*
-	0-15: R0-R15
-	16: CPSR
-	17-23: R8_fiq-R14_fiq
-	24-25: R13_irq-R14_irq
-	26-27: R13_svc-R14_svc
-	28-29: R13_abt-R14_abt
-	30-31: R13_und-R14_und
-	32: SPSR_fiq
-	33: SPSR_irq
-	34: SPSR_svc
-	35: SPSR_abt
-	36: SPSR_und
-	*/
-
+	// Registers: 0-15 R0-R15, 16 CPSR, 17-36 banked R/SPSR registers (see defines above)
 	UINT32						prefetch_pc;
 	UINT32						step_instructions;		//Instructions to step before triggering a breakpoint
 	UINT32						prefetch_opcode[5];
@@ -618,9 +603,7 @@ static inline UINT32 arm7_load_shift_reg(arm7_t* arm, UINT32 opcode, INT32* carr
 static inline UINT32 arm7_shift(arm7_t* arm, UINT32 opcode, UINT64 value, UINT32 shift_value, INT32* carry)
 {
 	INT32 shift_type = ARM7_BFE(opcode, 5, 2);
-	// Shift value of 0 has special behavior from a register: 
-	// If this byte is zero, the unchanged contents of Rm will be used as the second operand,
-	// and the old value of the CPSR C flag will be passed on as the shifter carry output.
+	// Register shift of 0: use Rm unchanged and pass the old C flag as carry
 	if (shift_value == 0 && (ARM7_BFE(opcode, 4, 1) || shift_type == 0)) {
 		*carry = -1;
 		return value;
@@ -782,10 +765,7 @@ static inline void arm7_data_processing(arm7_t* cpu, UINT32 opcode)
 			cpu->registers[CPSR] = cpsr;
 		}
 		if (Rd == 15) {
-			// When Rd is R15 and the S flag is set the result of the operation is placed in R15 
-			// and the SPSR corresponding to the current mode is moved to the CPSR. This allows
-			// state changes which atomically restore both PC and CPSR. This form of instruction
-			// should not be used in User mode.
+			// Rd=R15 with S flag: write result to PC and restore SPSR to CPSR (mode switch)
 			cpu->registers[CPSR] = arm7_reg_read(cpu, SPSR);
 		}
 	}

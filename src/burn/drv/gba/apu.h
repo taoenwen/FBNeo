@@ -473,20 +473,8 @@ static inline void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, double delt
 	{
 		UINT16 soundcnt_h = gba_io_read16(gb, GBA_SOUNDCNT_H);
 		//These are type int to allow them to be multiplied to enable/disable
-		UINT16 snd_sel     = gba_io_read16(gb, GBA_SOUNDCNT_L);
-		/* soundcnth
-		0-1   R/W  Sound # 1-4 Volume   (0=25%, 1=50%, 2=100%, 3=Prohibited)
-		2     R/W  DMA Sound A Volume   (0=50%, 1=100%)
-		3     R/W  DMA Sound B Volume   (0=50%, 1=100%)
-		4-7   -    Not used
-		8     R/W  DMA Sound A Enable RIGHT (0=Disable, 1=Enable)
-		9     R/W  DMA Sound A Enable LEFT  (0=Disable, 1=Enable)
-		10    R/W  DMA Sound A Timer Select (0=Timer 0, 1=Timer 1)
-		11    W?   DMA Sound A Reset FIFO   (1=Reset)
-		12    R/W  DMA Sound B Enable RIGHT (0=Disable, 1=Enable)
-		13    R/W  DMA Sound B Enable LEFT  (0=Disable, 1=Enable)
-		14    R/W  DMA Sound B Timer Select (0=Timer 0, 1=Timer 1)
-		15    W?   DMA Sound B Reset FIFO   (1=Reset)*/
+		UINT16 snd_sel     = gba_io_read16(gba, GBA_SOUNDCNT_L);
+		// SOUNDCNT_H: PSG volume, DMA FIFO volume/routing/timer select/reset
 		float psg_volume_lookup[4] = { 0.25,0.5,1.0,0. };
 		float psg_volume = psg_volume_lookup[SB_BFE(soundcnt_h, 0, 2)] * 0.25;
 
@@ -602,9 +590,7 @@ static inline void sb_process_audio(sb_gb_t *gb, sb_emu_state_t*emu, double delt
 	}
 }
 
-// Scheduler-driven audio settle, replacing the old 512-cycle batch inside
-// gba_advance.  The cadence self-corrects with cycles_late so the absolute
-// 512-cycle grid is preserved across late dispatches.
+// Scheduler-driven audio settle on a 512-cycle grid; self-corrects via cycles_late
 #define GBA_AUDIO_EVENT_INTERVAL 512
 static inline void gba_audio_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycles_late)
 {
@@ -651,6 +637,6 @@ static inline void gba_audio_event(gba_t* gba, sb_emu_state_t* emu, UINT32 cycle
 
 #undef GBA_AUDIO 
 
-// END GB REUSE CODE SHIM//
+// END GB REUSE CODE SHIM
 
 #endif
