@@ -113,10 +113,10 @@ typedef struct {
 } gba_timing_t;
 
 #define GBA_EVENT_PRIORITY_TIMER	1
-#define GBA_EVENT_PRIORITY_PPU	2
-#define GBA_EVENT_PRIORITY_SIO	3
+#define GBA_EVENT_PRIORITY_PPU		2
+#define GBA_EVENT_PRIORITY_SIO		3
 #define GBA_EVENT_PRIORITY_AUDIO	4
-#define GBA_EVENT_PRIORITY_DMA	5
+#define GBA_EVENT_PRIORITY_DMA		5
 
 #include "cpu.h"
 
@@ -404,9 +404,9 @@ typedef struct {
 	INT32  dest_addr;
 	INT32  current_transaction;
 	bool   last_enable;
-	UINT32 last_vblank_seq;	// ppu.vblank_seq at the last trigger check
-	UINT32 last_hblank_seq;	// ppu.hblank_seq at the last trigger check
-	UINT32 latched_count;	// transfer count latched at enable / last completion
+	UINT32 last_vblank_seq;		// ppu.vblank_seq at the last trigger check
+	UINT32 last_hblank_seq;		// ppu.hblank_seq at the last trigger check
+	UINT32 latched_count;		// transfer count latched at enable / last completion
 	UINT32 latched_transfer;
 	INT32  startup_delay;
 	bool   activate_audio_dma;
@@ -417,8 +417,8 @@ typedef struct {
 	INT32  scan_clock;
 	bool   last_vblank;
 	bool   last_hblank;
-	UINT32 vblank_seq;		// increments at each vblank rising edge
-	UINT32 hblank_seq;		// increments at each hblank rising edge
+	UINT32 vblank_seq;			// increments at each vblank rising edge
+	UINT32 hblank_seq;			// increments at each hblank rising edge
 	INT32  last_lcd_y;
 	struct {
 		INT32 render_bgx;
