@@ -24,36 +24,36 @@ struct ConsoleRomSystem {
 
 static bool ConsoleRomGbaHeader(const UINT8* p, size_t nHdrLen, UINT32 nRomLen)
 {
-	if (nRomLen <= 0xBD || nHdrLen <= 0xBD) {
+	if (nRomLen <= 0xbd || nHdrLen <= 0xbd) {
 		return false;
 	}
 
 	UINT32 nSum = 0;
-	for (INT32 i = 0xA0; i <= 0xBD; i++) {
+	for (INT32 i = 0xa0; i <= 0xbd; i++) {
 		nSum += p[i];
 	}
-	if (((nSum + 0x19) & 0xFF) == 0) {				// GBATEK header checksum: sum(A0..BD) == -0x19
+	if (((nSum + 0x19) & 0xff) == 0) {				// GBATEK header checksum: sum(A0..BD) == -0x19
 		return true;
 	}
 
-	if (p[3] != 0xEA) {								// Fallback: ARM branch at the reset vector
+	if (p[3] != 0xea) {								// Fallback: ARM branch at the reset vector
 		return false;
 	}
-	for (INT32 i = 0xA0; i <= 0xAF; i++) {			// ... with printable title/game code
-		if (p[i] != 0 && (p[i] < 0x20 || p[i] > 0x7E)) {
+	for (INT32 i = 0xa0; i <= 0xaf; i++) {			// ... with printable title/game code
+		if (p[i] != 0 && (p[i] < 0x20 || p[i] > 0x7e)) {
 			return false;
 		}
 	}
 	return true;
 }
 
-static const struct ConsoleRomSystem g_Systems[] = {
+static const struct ConsoleRomSystem Systems[] = {
 	{ "GBA", "gba_aio", "gba_gba", "gba", "gba_bios.bin", "gba_custom_", 0x80, 64 * 1024 * 1024, ConsoleRomGbaHeader },
 };
 
 static const struct ConsoleRomSystem* ConsoleRomFindSystem(const char* szName)
 {
-	for (const struct ConsoleRomSystem* p = g_Systems; p != g_Systems + ARRAY_SIZE(g_Systems); p++) {
+	for (const struct ConsoleRomSystem* p = Systems; p != Systems + ARRAY_SIZE(Systems); p++) {
 		if (strcmp(p->szName, szName) == 0) {
 			return p;
 		}
@@ -98,36 +98,36 @@ static UINT32 ConsoleRomPathHash(const char* szPath)
 // ---------------------------------------------------------------------------
 // Runtime driver record
 
-static const struct ConsoleRomSystem* g_pSys = NULL;
-static struct BurnDriver* g_pDrv = NULL;
-static INT32 g_nDrvIdx = -1;
+static const struct ConsoleRomSystem* pSys = NULL;
+static struct BurnDriver* pDrv = NULL;
+static INT32 nDrvIdx = -1;
 
-static char g_ShortName[64];
-static char g_FullName[MAX_PATH + 32];
-static wchar_t g_FullNameW[MAX_PATH + 34];
-static char g_ZipName[MAX_PATH];
-static char g_RomName[MAX_PATH];
-static char g_BiosZipName[64];		// Driver-side boardrom name (e.g. "gba_gba")
-static char g_BiosZip[64];			// Resolved archive name holding the BIOS set (e.g. "gba")
-static char g_BiosFile[32];			// Bare BIOS file name (e.g. "gba_bios.bin")
+static char ShortName[64];
+static char FullName[MAX_PATH + 32];
+static wchar_t FullNameW[MAX_PATH + 34];
+static char ZipName[MAX_PATH];
+static char RomName[MAX_PATH];
+static char BiosZipName[64];	// Driver-side boardrom name (e.g. "gba_gba")
+static char BiosZip[64];	// Resolved archive name holding the BIOS set (e.g. "gba")
+static char BiosFile[32];
 
-static struct BurnRomInfo g_RomDesc[1];
+static struct BurnRomInfo RomDesc[1];
 
 static INT32 ConsoleRomGetZipName(char** pszName, UINT32 i)
 {
 	if (pszName == NULL) {
 		return 1;
 	}
-	if (i == 0 && g_ZipName[0] != 0) {
-		*pszName = g_ZipName;
+	if (i == 0 && ZipName[0] != 0) {
+		*pszName = ZipName;
 		return 0;
 	}
-	if (i == 1 && g_BiosZip[0] != 0) {				// BIOS set archive, searched like a normal parent set
-		*pszName = g_BiosZip;
+	if (i == 1 && BiosZip[0] != 0) {				// BIOS set archive, searched like a normal parent set
+		*pszName = BiosZip;
 		return 0;
 	}
-	if (i == 2 && g_BiosFile[0] != 0) {				// Bare BIOS file beside the ROM / in the ROM dirs
-		*pszName = g_BiosFile;
+	if (i == 2 && BiosFile[0] != 0) {				// Bare BIOS file beside the ROM / in the ROM dirs
+		*pszName = BiosFile;
 		return 0;
 	}
 	*pszName = NULL;
@@ -136,26 +136,26 @@ static INT32 ConsoleRomGetZipName(char** pszName, UINT32 i)
 
 static INT32 ConsoleRomGetRomInfo(struct BurnRomInfo* pri, UINT32 i)
 {
-	if (g_pSys == NULL) {
+	if (pSys == NULL) {
 		return 1;
 	}
 
 	if (i == 0) {
-		if (g_RomDesc[0].nLen == 0) {
+		if (RomDesc[0].nLen == 0) {
 			return 1;
 		}
 		if (pri) {
-			*pri = g_RomDesc[0];
+			*pri = RomDesc[0];
 		}
 		return 0;
 	}
 
-	if (g_pSys->szBiosDriver != NULL && i >= g_pSys->nBiosSlot) {
-		const struct BurnDriver* pBios = BurnGetDriver(g_pSys->szBiosDriver);
+	if (pSys->szBiosDriver != NULL && i >= pSys->nBiosSlot) {
+		const struct BurnDriver* pBios = BurnGetDriver(pSys->szBiosDriver);
 		if (pBios == NULL || pBios->GetRomInfo == NULL) {
 			return 1;
 		}
-		return pBios->GetRomInfo(pri, i - g_pSys->nBiosSlot);
+		return pBios->GetRomInfo(pri, i - pSys->nBiosSlot);
 	}
 
 	static const struct BurnRomInfo Empty = { "", 0, 0, 0 };	// Filler slots: keeps the BIOS slot reachable, mirrors STDROMPICKEXT
@@ -167,24 +167,24 @@ static INT32 ConsoleRomGetRomInfo(struct BurnRomInfo* pri, UINT32 i)
 
 static INT32 ConsoleRomGetRomName(char** pszName, UINT32 i, INT32 nAka)
 {
-	if (g_pSys == NULL || pszName == NULL) {
+	if (pSys == NULL || pszName == NULL) {
 		return 1;
 	}
 
 	if (i == 0) {
-		if (nAka || g_RomName[0] == 0) {
+		if (nAka || RomName[0] == 0) {
 			return 1;
 		}
-		*pszName = g_RomName;
+		*pszName = RomName;
 		return 0;
 	}
 
-	if (g_pSys->szBiosDriver != NULL && i >= g_pSys->nBiosSlot) {
-		const struct BurnDriver* pBios = BurnGetDriver(g_pSys->szBiosDriver);
+	if (pSys->szBiosDriver != NULL && i >= pSys->nBiosSlot) {
+		const struct BurnDriver* pBios = BurnGetDriver(pSys->szBiosDriver);
 		if (pBios == NULL || pBios->GetRomName == NULL) {
 			return 1;
 		}
-		return pBios->GetRomName(pszName, i - g_pSys->nBiosSlot, nAka);
+		return pBios->GetRomName(pszName, i - pSys->nBiosSlot, nAka);
 	}
 
 	if (nAka) {
@@ -234,17 +234,17 @@ INT32 ConsoleRomDetect(const char* szPath, struct ConsoleRomInfo* pInfo)
 			if (pList[i].szName == NULL) {
 				continue;
 			}
-			for (const struct ConsoleRomSystem* pSys = g_Systems; pSys != g_Systems + ARRAY_SIZE(g_Systems); pSys++) {
-				if (pList[i].nLen <= 0xBD || pList[i].nLen > pSys->nMaxSize) {
+			for (const struct ConsoleRomSystem* pSystem = Systems; pSystem != Systems + ARRAY_SIZE(Systems); pSystem++) {
+				if (pList[i].nLen <= 0xbd || pList[i].nLen > pSystem->nMaxSize) {
 					continue;
 				}
 				memset(header, 0, sizeof(header));
 				if (ZipLoadFile(header, sizeof(header), NULL, i)) {
 					continue;
 				}
-				if (pSys->RomHeaderValid(header, sizeof(header), pList[i].nLen)) {
+				if (pSystem->RomHeaderValid(header, sizeof(header), pList[i].nLen)) {
 					nFound = i;
-					pFoundSys = pSys;
+					pFoundSys = pSystem;
 					break;
 				}
 			}
@@ -254,7 +254,11 @@ INT32 ConsoleRomDetect(const char* szPath, struct ConsoleRomInfo* pInfo)
 			pInfo->szSystem = pFoundSys->szName;
 			pInfo->nLen = pList[nFound].nLen;
 			pInfo->nCrc = pList[nFound].nCrc;					// zip/7z listings already carry the CRC32
-			strcpy(pInfo->szRomName, ConsoleRomBaseName(pList[nFound].szName));
+			// zip member names come from an external archive, so they aren't
+			// bounded by MAX_PATH; truncate explicitly instead of strcpy.
+			const char* szMemberName = ConsoleRomBaseName(pList[nFound].szName);
+			strncpy(pInfo->szRomName, szMemberName, MAX_PATH - 1);
+			pInfo->szRomName[MAX_PATH - 1] = 0;
 			strcpy(pInfo->szZipName, ConsoleRomBaseName(szPath));
 			ConsoleRomStripExt(pInfo->szZipName);
 		}
@@ -297,9 +301,9 @@ INT32 ConsoleRomDetect(const char* szPath, struct ConsoleRomInfo* pInfo)
 	}
 	fclose(f);
 
-	for (const struct ConsoleRomSystem* pSys = g_Systems; pSys != g_Systems + ARRAY_SIZE(g_Systems); pSys++) {
-		if ((UINT32)lSize <= pSys->nMaxSize && pSys->RomHeaderValid(header, nGot, (UINT32)lSize)) {
-			pInfo->szSystem = pSys->szName;
+	for (const struct ConsoleRomSystem* pSystem = Systems; pSystem != Systems + ARRAY_SIZE(Systems); pSystem++) {
+		if ((UINT32)lSize <= pSystem->nMaxSize && pSystem->RomHeaderValid(header, nGot, (UINT32)lSize)) {
+			pInfo->szSystem = pSystem->szName;
 			pInfo->nLen = (UINT32)lSize;
 			pInfo->nCrc = nCrc;
 			strcpy(pInfo->szRomName, ConsoleRomBaseName(szPath));
@@ -345,28 +349,28 @@ static void ConsoleRomLookupTitle(char* szOut, INT32 nMax, const struct ConsoleR
 
 const char* ConsoleRomGetFullName(void)
 {
-	return g_FullName;
+	return FullName;
 }
 
 void ConsoleRomSetFullNameW(const wchar_t* szW)
 {
-	const size_t nCount = sizeof(g_FullNameW) / sizeof(g_FullNameW[0]);
+	const size_t nCount = sizeof(FullNameW) / sizeof(FullNameW[0]);
 
 	if (szW == NULL || szW[0] == 0) {
-		g_FullNameW[0] = 0;
-		g_FullNameW[1] = 0;
-		if (g_pDrv != NULL) {
-			g_pDrv->szFullNameW = NULL;
+		FullNameW[0] = 0;
+		FullNameW[1] = 0;
+		if (pDrv != NULL) {
+			pDrv->szFullNameW = NULL;
 		}
 		return;
 	}
 
-	wcsncpy(g_FullNameW, szW, nCount - 2);
-	g_FullNameW[nCount - 2] = 0;
-	g_FullNameW[nCount - 1] = 0;					// Double-NUL: DRV_NEXTNAME enumeration terminates cleanly
+	wcsncpy(FullNameW, szW, nCount - 2);
+	FullNameW[nCount - 2] = 0;
+	FullNameW[nCount - 1] = 0;					// Double-NUL: DRV_NEXTNAME enumeration terminates cleanly
 
-	if (g_pDrv != NULL) {
-		g_pDrv->szFullNameW = g_FullNameW;
+	if (pDrv != NULL) {
+		pDrv->szFullNameW = FullNameW;
 	}
 }
 
@@ -376,81 +380,79 @@ INT32 ConsoleRomCreateDriver(const char* szPath, const struct ConsoleRomInfo* pI
 		return -1;
 	}
 
-	g_pSys = ConsoleRomFindSystem(pInfo->szSystem);
-	if (g_pSys == NULL) {
+	pSys = ConsoleRomFindSystem(pInfo->szSystem);
+	if (pSys == NULL) {
 		return -1;
 	}
 
 	// Update per-load state (pointers stay valid across reloads: same static buffers)
-	sprintf(g_ShortName, "%s%08x", g_pSys->szShortPrefix, ConsoleRomPathHash(szPath));
-	strcpy(g_ZipName, pInfo->szZipName);
-	strcpy(g_RomName, pInfo->szRomName);
-	strcpy(g_FullName, ConsoleRomBaseName(szPath));
-	ConsoleRomStripExt(g_FullName);					// Fallback title: file name without the extension
+	sprintf(ShortName, "%s%08x", pSys->szShortPrefix, ConsoleRomPathHash(szPath));
+	strcpy(ZipName, pInfo->szZipName);
+	strcpy(RomName, pInfo->szRomName);
+	strcpy(FullName, ConsoleRomBaseName(szPath));
+	ConsoleRomStripExt(FullName);					// Fallback title: file name without the extension
 	if (pInfo->nCrc != 0) {
-		ConsoleRomLookupTitle(g_FullName, (INT32)sizeof(g_FullName), pInfo);	// Prefer the database title
+		ConsoleRomLookupTitle(FullName, (INT32)sizeof(FullName), pInfo);	// Prefer the database title
 	}
-	g_RomDesc[0].szName = g_RomName;
-	g_RomDesc[0].nLen   = pInfo->nLen;
-	g_RomDesc[0].nCrc   = pInfo->nCrc;
-	g_RomDesc[0].nType  = BRF_PRG;
-	g_BiosZipName[0] = 0;
-	g_BiosZip[0] = 0;
-	g_BiosFile[0] = 0;
-	if (g_pSys->szBiosDriver != NULL) {
-		strcpy(g_BiosZipName, g_pSys->szBiosDriver);
+	RomDesc[0].szName = RomName;
+	RomDesc[0].nLen   = pInfo->nLen;
+	RomDesc[0].nCrc   = pInfo->nCrc;
+	RomDesc[0].nType  = BRF_PRG;
+	BiosZipName[0] = 0;
+	BiosZip[0] = 0;
+	BiosFile[0] = 0;
+	if (pSys->szBiosDriver != NULL) {
+		strcpy(BiosZipName, pSys->szBiosDriver);
 	}
-	if (g_pSys->szBiosZip != NULL) {
-		strcpy(g_BiosZip, g_pSys->szBiosZip);
+	if (pSys->szBiosZip != NULL) {
+		strcpy(BiosZip, pSys->szBiosZip);
 	}
-	if (g_pSys->szBiosFile != NULL) {
-		strcpy(g_BiosFile, g_pSys->szBiosFile);
-	}
-
-	if (g_nDrvIdx >= 0) {							// Reuse the single session slot
-		return g_nDrvIdx;
+	if (pSys->szBiosFile != NULL) {
+		strcpy(BiosFile, pSys->szBiosFile);
 	}
 
-	const struct BurnDriver* pBase = BurnGetDriver(g_pSys->szShellDriver);
+	if (nDrvIdx >= 0) {							// Reuse the single session slot
+		return nDrvIdx;
+	}
+
+	const struct BurnDriver* pBase = BurnGetDriver(pSys->szShellDriver);
 	if (pBase == NULL) {
 		return -1;
 	}
 
-	g_pDrv = (struct BurnDriver*)calloc(1, sizeof(struct BurnDriver));
-	if (g_pDrv == NULL) {
+	pDrv = (struct BurnDriver*)calloc(1, sizeof(struct BurnDriver));
+	if (pDrv == NULL) {
 		return -1;
 	}
-	memcpy(g_pDrv, pBase, sizeof(struct BurnDriver));
+	memcpy(pDrv, pBase, sizeof(struct BurnDriver));
 
-	g_pDrv->szShortName = g_ShortName;
-#ifdef _UNICODE
-	g_pDrv->szFullNameA = NULL;						// Unicode builds: only the W title is exposed
-#else
-	g_pDrv->szFullNameA = g_FullName;				// ANSI builds: keep the A title (W is unused)
-#endif
-	g_pDrv->szFullNameW = NULL;
-	g_pDrv->szBoardROM  = (g_pSys->szBiosDriver != NULL) ? g_BiosZipName : NULL;
-	g_pDrv->szParent    = NULL;
-	g_pDrv->GetZipName  = ConsoleRomGetZipName;
-	g_pDrv->GetRomInfo  = ConsoleRomGetRomInfo;
-	g_pDrv->GetRomName  = ConsoleRomGetRomName;
-	g_pDrv->Flags       = BDF_GAME_WORKING | BDF_CUSTOMROM;
+	pDrv->szShortName = ShortName;
+	// Keep the ANSI title in Unicode builds too: BurnDrvGetTextA() returns the field
+	// as-is, and consumers like MakeScreenShot()/DecorateGameName() strlen() it.
+	pDrv->szFullNameA = FullName;				// (W still takes precedence in BurnDrvGetText)
+	pDrv->szFullNameW = NULL;
+	pDrv->szBoardROM  = (pSys->szBiosDriver != NULL) ? BiosZipName : NULL;
+	pDrv->szParent    = NULL;
+	pDrv->GetZipName  = ConsoleRomGetZipName;
+	pDrv->GetRomInfo  = ConsoleRomGetRomInfo;
+	pDrv->GetRomName  = ConsoleRomGetRomName;
+	pDrv->Flags       = BDF_GAME_WORKING | BDF_CUSTOMROM;
 
-	if (~0U == LinkExtlDrivers(g_pDrv, &nBurnDrvCount)) {
-		free(g_pDrv);
-		g_pDrv = NULL;
+	if (~0U == LinkExtlDrivers(pDrv, &nBurnDrvCount)) {
+		free(pDrv);
+		pDrv = NULL;
 		return -1;
 	}
-	g_nDrvIdx = (INT32)(nBurnDrvCount - 1);
+	nDrvIdx = (INT32)(nBurnDrvCount - 1);
 
-	return g_nDrvIdx;
+	return nDrvIdx;
 }
 
 void ConsoleRomExit(void)
 {
-	if (g_pDrv != NULL) {
-		free(g_pDrv);
-		g_pDrv = NULL;
+	if (pDrv != NULL) {
+		free(pDrv);
+		pDrv = NULL;
 	}
-	g_nDrvIdx = -1;
+	nDrvIdx = -1;
 }
